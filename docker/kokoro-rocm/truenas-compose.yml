@@ -33,7 +33,7 @@ services:
       dockerfile: Dockerfile
       args:
         ROCM_VERSION: "7.2"
-        GFX_ARCH: ${GFX_ARCH:-}
+        GFX_ARCH: "gfx1150"
         KOKORO_REF: master
 
     container_name: kokoro-tts-rocm
