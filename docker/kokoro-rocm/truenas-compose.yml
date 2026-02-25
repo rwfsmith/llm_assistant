@@ -33,6 +33,10 @@ services:
     container_name: kokoro-tts-rocm
     restart: unless-stopped
 
+    # Run as root so the container can write to the host-mounted volume.
+    # The Dockerfile creates appuser (uid 1001) but mounted dirs are root-owned.
+    user: root
+
     ports:
       - "8880:8880"
 
