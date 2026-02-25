@@ -81,14 +81,10 @@ RUN uv venv && uv sync --extra rocm
 # When GFX_ARCH is not "gfx1150" this step is a no-op.
 ARG GFX_ARCH
 RUN if [ "${GFX_ARCH}" = "gfx1150" ]; then \
-        echo "==> gfx1150: installing rocm-sdk from AMD staging index..." && \
-        /app/.venv/bin/pip install \
-            --extra-index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            "rocm[libraries,devel]" && \
-        echo "==> Running rocm-sdk init for gfx1150..." && \
-        ( /app/.venv/bin/python -m rocm_sdk init || \
-          /app/.venv/bin/rocm-sdk init ) && \
-        echo "==> rocm-sdk init complete."; \
+        echo "==> gfx1150: installing native torch + rocm from AMD staging index..." && \
+        uv pip install \
+            --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
+            "rocm[libraries,devel]" torch torchaudio torchvision; \
     else \
         echo "==> GFX_ARCH=${GFX_ARCH:-unset}: skipping gfx1150 staging step."; \
     fi
