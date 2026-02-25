@@ -1,0 +1,95 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "LLM Assistant – Configure Server",
+        "description": "Enter the details of your OpenAI-compatible LLM server.",
+        "data": {
+          "server_name": "Server Name",
+          "base_url": "Server URL (e.g. http://localhost:1234/v1)",
+          "api_key": "API Key (leave blank if not required)",
+          "use_lmstudio_api": "Use LM Studio Native API (/api/v1/chat) for MCP orchestration"
+        },
+        "data_description": {
+          "base_url": "Fully-qualified URL pointing to your server's API root. Typically ends with /v1.",
+          "api_key": "Required by some hosted services. Local servers (LM Studio, Ollama) generally do not need one.",
+          "use_lmstudio_api": "When enabled, requests are sent to LM Studio's native /api/v1/chat endpoint instead of the OpenAI-compatible endpoint. This allows LM Studio to orchestrate MCP tool calls end-to-end."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure LLM Server",
+        "description": "Update the server connection settings.",
+        "data": {
+          "server_name": "Server Name",
+          "base_url": "Server URL",
+          "api_key": "API Key",
+          "use_lmstudio_api": "Use LM Studio Native API"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the LLM server. Check that the URL is correct and the server is running.",
+      "invalid_auth": "Invalid API key.",
+      "unknown": "An unexpected error occurred. Check the logs for details."
+    },
+    "abort": {
+      "already_configured": "A server with this URL is already configured.",
+      "reconfigure_successful": "Server reconfigured successfully."
+    }
+  },
+  "config_subentries": {
+    "conversation": {
+      "initiate_flow": {
+        "user": "Add Conversation Agent"
+      },
+      "entry_type": "Conversation Agent",
+      "step": {
+        "user": {
+          "title": "Configure Conversation Agent",
+          "description": "Choose a model and configure this LLM-powered conversation agent.",
+          "data": {
+            "model": "Model",
+            "prompt": "System Prompt",
+            "llm_hass_api": "Home Assistant APIs (for device control)",
+            "temperature": "Temperature",
+            "context_length": "Context Length (tokens, LM Studio native mode)",
+            "max_message_history": "Max Message History Rounds (0 = unlimited)",
+            "parallel_tool_calls": "Enable Parallel Tool Calls",
+            "strip_emojis": "Strip Emojis from Responses",
+            "mcp_servers": "MCP Servers"
+          },
+          "data_description": {
+            "model": "Model to use for completions. The list is fetched live from your server.",
+            "llm_hass_api": "Grant the agent access to Home Assistant's built-in tool APIs so it can control lights, switches, and other entities.",
+            "temperature": "Sampling temperature. Lower = more deterministic, higher = more creative.",
+            "context_length": "Only used in LM Studio Native API mode.",
+            "max_message_history": "Limits how many previous conversation rounds are sent to the model to stay within its context window.",
+            "mcp_servers": "Add MCP (Model Context Protocol) servers to extend the agent with external tools. Each entry requires at minimum a 'type' field."
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure Conversation Agent",
+          "description": "Update the conversation agent settings.",
+          "data": {
+            "model": "Model",
+            "prompt": "System Prompt",
+            "llm_hass_api": "Home Assistant APIs",
+            "temperature": "Temperature",
+            "context_length": "Context Length",
+            "max_message_history": "Max Message History Rounds",
+            "parallel_tool_calls": "Enable Parallel Tool Calls",
+            "strip_emojis": "Strip Emojis from Responses",
+            "mcp_servers": "MCP Servers"
+          }
+        }
+      },
+      "error": {
+        "cannot_connect": "Cannot connect to the server to retrieve the model list.",
+        "unknown": "An unexpected error occurred."
+      },
+      "abort": {
+        "reconfigure_successful": "Agent reconfigured successfully."
+      }
+    }
+  }
+}

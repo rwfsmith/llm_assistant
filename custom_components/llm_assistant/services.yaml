@@ -1,0 +1,3 @@
+# LLM Assistant does not currently expose any custom service actions.
+# Home Assistant entity services (conversation.process, etc.) are handled
+# by the platform automatically.

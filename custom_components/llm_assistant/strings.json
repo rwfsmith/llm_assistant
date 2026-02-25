@@ -1,0 +1,84 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "LLM Assistant – Configure Server",
+        "description": "Enter the details of your OpenAI-compatible LLM server.",
+        "data": {
+          "server_name": "Server Name",
+          "base_url": "Server URL",
+          "api_key": "API Key",
+          "use_lmstudio_api": "Use LM Studio Native API"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure LLM Server",
+        "data": {
+          "server_name": "Server Name",
+          "base_url": "Server URL",
+          "api_key": "API Key",
+          "use_lmstudio_api": "Use LM Studio Native API"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the LLM server.",
+      "invalid_auth": "Invalid API key.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "Server already configured.",
+      "reconfigure_successful": "Reconfigured successfully."
+    }
+  },
+  "config_subentries": {
+    "conversation": {
+      "initiate_flow": {
+        "user": "Add Conversation Agent"
+      },
+      "entry_type": "Conversation Agent",
+      "step": {
+        "user": {
+          "title": "Configure Conversation Agent",
+          "data": {
+            "model": "Model",
+            "prompt": "System Prompt",
+            "llm_hass_api": "Home Assistant APIs",
+            "temperature": "Temperature",
+            "context_length": "Context Length",
+            "max_message_history": "Max Message History Rounds",
+            "parallel_tool_calls": "Enable Parallel Tool Calls",
+            "strip_emojis": "Strip Emojis",
+            "mcp_servers": "MCP Servers"
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure Conversation Agent",
+          "data": {
+            "model": "Model",
+            "prompt": "System Prompt",
+            "llm_hass_api": "Home Assistant APIs",
+            "temperature": "Temperature",
+            "context_length": "Context Length",
+            "max_message_history": "Max Message History Rounds",
+            "parallel_tool_calls": "Enable Parallel Tool Calls",
+            "strip_emojis": "Strip Emojis",
+            "mcp_servers": "MCP Servers"
+          }
+        }
+      },
+      "error": {
+        "cannot_connect": "Cannot retrieve model list.",
+        "unknown": "Unexpected error."
+      },
+      "abort": {
+        "reconfigure_successful": "Reconfigured successfully."
+      }
+    }
+  },
+  "exceptions": {
+    "unsupported_attachment_type": {
+      "message": "Only image attachments are supported."
+    }
+  }
+}

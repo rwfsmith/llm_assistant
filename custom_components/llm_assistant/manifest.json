@@ -1,0 +1,20 @@
+{
+  "domain": "llm_assistant",
+  "name": "LLM Assistant",
+  "after_dependencies": [
+    "assist_pipeline",
+    "intent"
+  ],
+  "codeowners": ["@rwfsmith"],
+  "config_flow": true,
+  "dependencies": [
+    "conversation"
+  ],
+  "documentation": "https://github.com/rwfsmith/llm_assistant",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "requirements": [
+    "openai>=2.15.0"
+  ],
+  "version": "1.0.0"
+}
