@@ -215,10 +215,11 @@ The GPU may be fully PCIe-passed-through to a VM, which removes it from the host
 1. Run Kokoro on a **separate Ubuntu VM** with PCIe passthrough (not HAOS)
 2. Use the GPU on the TrueNAS host only — do not pass it through to any VM
 
-**gfx1150 "Unsupported target" or falls back to CPU (Ryzen AI 9 HX 370 / Strix Point)**
-This GPU requires ROCm 7.1.1+. `setup.sh` defaults to ROCm 7.2.0 and patches Kokoro-FastAPI's Dockerfile automatically. If you cloned before this fix or are using a pre-built image, add this to the `environment:` section of the compose file:
-```yaml
-- HSA_OVERRIDE_GFX_VERSION=11.0.0
+**gfx1150 "HIP error: invalid device function" (Ryzen AI 9 HX 370 / Strix Point)**
+PyTorch ROCm wheels don't include compiled gfx1150 kernels yet. The compose files set `HSA_OVERRIDE_GFX_VERSION=11.0.0` by default, which tells HIP to use the binary-compatible gfx1100 (RDNA 3) kernels. If you built before this fix, do a full no-cache rebuild:
+```bash
+docker compose -f truenas-compose.yml build --no-cache kokoro-tts
+docker compose -f truenas-compose.yml up -d
 ```
 
 **Container exits immediately**
