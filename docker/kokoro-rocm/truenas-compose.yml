@@ -55,9 +55,11 @@ services:
       - DOWNLOAD_MODEL=true
       - PYTHONUNBUFFERED=1
       - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
-      # Uncomment for first run on RDNA 2 (RX 6000 series):
-      # - MIOPEN_FIND_MODE=3
-      # - MIOPEN_FIND_ENFORCE=3
+      # MIOpen kernel tuning – required on first run for any GPU without pre-built kdb files.
+      # Runs an exhaustive kernel search and writes results to the miopen-cache volume.
+      # After first successful startup, change these to MIOPEN_FIND_MODE=2 (use cache only).
+      - MIOPEN_FIND_MODE=3
+      - MIOPEN_FIND_ENFORCE=3
       #
       # gfx1150 (Ryzen AI 9 HX 370, Strix Point) – officially supported in ROCm 7.1.1+.
       # setup.sh patches the Dockerfile to use ROCm 7.2.0 automatically.
