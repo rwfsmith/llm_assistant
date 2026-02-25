@@ -1,4 +1,4 @@
-# truenas-compose.yml – Kokoro-FastAPI + Wyoming proxy for TrueNAS SCALE
+# truenas-compose.yml – Kokoro TTS API (ONNX Runtime) + Wyoming proxy for TrueNAS SCALE
 #
 # Run from TrueNAS shell (System Settings → Shell or SSH):
 #
@@ -6,13 +6,14 @@
 #   git clone https://github.com/rwfsmith/llm_assistant . 2>/dev/null || true
 #   cd docker/kokoro-rocm
 #
-# Then set env vars and start (no setup.sh needed – source is fetched at build time):
+# Then set env vars and start:
 #   export VIDEO_GID=$(getent group video | cut -d: -f3)
 #   export RENDER_GID=$(getent group render | cut -d: -f3)
 #   export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/docker/kokoro-rocm/data
-#   export GFX_ARCH=gfx1150   # adjust for your GPU (see Dockerfile)
 #   sudo -E mkdir -p "$KOKORO_DATA_DIR"/{models,miopen-config,miopen-cache}
 #   docker compose -f truenas-compose.yml up -d --build
+#
+# The container downloads the ONNX model (~169 MB) on first start if not cached.
 #
 # No ROCm host installation required – TrueNAS SCALE's Linux kernel (6.6+)
 # includes the amdgpu/amdkfd modules. The full ROCm runtime is inside the image.
@@ -33,8 +34,7 @@ services:
       dockerfile: Dockerfile
       args:
         ROCM_VERSION: "7.2"
-        GFX_ARCH: "gfx1150"
-        KOKORO_REF: master
+        GPU_SUPPORT: "rocm"
 
     container_name: kokoro-tts-rocm
     restart: unless-stopped
@@ -56,32 +56,30 @@ services:
       - "${RENDER_GID:-109}"
 
     environment:
-      - USE_GPU=true
-      - DEVICE=gpu
-      - DOWNLOAD_MODEL=true
       - PYTHONUNBUFFERED=1
-      - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
-      # MIOpen kernel tuning – required on first run for any GPU without pre-built kdb files.
-      # Runs an exhaustive kernel search and writes results to the miopen-cache volume.
-      # After first successful startup, change these to MIOPEN_FIND_MODE=2 (use cache only).
+      # ONNX model variant: fp32 | fp16 (default) | fp16-gpu | int8
+      - MODEL_VARIANT=fp16
+      # Use AMD ROCm execution provider for GPU inference
+      - ONNX_PROVIDER=ROCMExecutionProvider
+      # MIOpen kernel tuning – required on first run for GPUs without pre-built kdb files.
+      # Runs an exhaustive kernel search and caches results to the miopen-cache volume.
+      # After first successful startup, consider changing to MIOPEN_FIND_MODE=2.
       - MIOPEN_FIND_MODE=3
       - MIOPEN_FIND_ENFORCE=3
-      #
-      # gfx1150 (Ryzen AI 9 HX 370, Strix Point): rocm-sdk is installed at build
-      # time to provide native gfx1150 kernels. HSA_OVERRIDE tells PyTorch to
-      # use gfx1100 compiled kernels as a fallback if rocm-sdk init did not fully
-      # replace them. Remove once gfx1150 is fully upstreamed in a stable release.
+      # gfx1150 (Ryzen AI 9 HX 370 / Strix Point): tells the ROCm/HIP runtime to
+      # treat the GPU as gfx1100 for kernel dispatch compatibility.
       - HSA_OVERRIDE_GFX_VERSION=11.0.0
 
     volumes:
       # Point KOKORO_DATA_DIR at a TrueNAS dataset path, e.g.:
       #   export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/data
-      - ${KOKORO_DATA_DIR:-./data}/models:/app/api/src/models/v1_0
+      # MODEL_DIR inside the container – matches the ENV in the Dockerfile
+      - ${KOKORO_DATA_DIR:-./data}/models:/app/models
       - ${KOKORO_DATA_DIR:-./data}/miopen-config:/root/.config/miopen
       - ${KOKORO_DATA_DIR:-./data}/miopen-cache:/root/.cache/miopen
 
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8880/v1/audio/voices"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8880/health"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -1,13 +1,12 @@
-# docker-compose.yml – Kokoro-FastAPI with ROCm (AMD GPU) support
+# docker-compose.yml – Kokoro TTS API (ONNX Runtime) with ROCm (AMD GPU) support
 #
-# Quick start (no setup script needed):
+# Quick start:
 #   export VIDEO_GID=$(getent group video | cut -d: -f3)
 #   export RENDER_GID=$(getent group render | cut -d: -f3)
-#   export GFX_ARCH=gfx1150   # set your GPU arch (see Dockerfile for options)
 #   docker compose up -d --build
 #
-# The Dockerfile clones Kokoro-FastAPI source at build time.
-# On rebuild: docker compose build --no-cache
+# The container downloads the ONNX model (~169 MB for fp16) on first start.
+# CPU-only build: docker compose build --build-arg GPU_SUPPORT=cpu
 
 name: kokoro-rocm
 
@@ -18,8 +17,7 @@ services:
       dockerfile: Dockerfile
       args:
         ROCM_VERSION: "7.2"
-        GFX_ARCH: ${GFX_ARCH:-}
-        KOKORO_REF: master
+        GPU_SUPPORT: ${GPU_SUPPORT:-rocm}
 
     container_name: kokoro-tts-rocm
 
@@ -44,33 +42,28 @@ services:
       - "${RENDER_GID:-109}"
 
     environment:
-      - USE_GPU=true
-      - DEVICE=gpu
-      - DOWNLOAD_MODEL=true
       - PYTHONUNBUFFERED=1
-      # ROCm performance tuning
-      - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
-      # MIOpen kernel tuning – required on first run for any GPU without pre-built kdb files.
-      # Runs an exhaustive kernel search and writes results to the miopen-cache volume.
-      # After first successful startup, change these to MIOPEN_FIND_MODE=2 (use cache only).
+      # ONNX model variant: fp32 | fp16 (default) | fp16-gpu | int8
+      - MODEL_VARIANT=${MODEL_VARIANT:-fp16}
+      # Execution provider: ROCMExecutionProvider | CPUExecutionProvider | auto
+      - ONNX_PROVIDER=${ONNX_PROVIDER:-ROCMExecutionProvider}
+      # MIOpen kernel tuning – required on first run for GPUs without pre-built kdb.
+      # After first successful startup, consider changing to MIOPEN_FIND_MODE=2.
       - MIOPEN_FIND_MODE=3
       - MIOPEN_FIND_ENFORCE=3
-      #
-      # gfx1150 (Ryzen AI 9 HX 370, Strix Point): rocm-sdk is installed at build
-      # time to provide native gfx1150 kernels. HSA_OVERRIDE tells PyTorch to
-      # use gfx1100 compiled kernels as a fallback if rocm-sdk init did not fully
-      # replace them. Remove once gfx1150 is fully upstreamed in a stable release.
+      # gfx1150 (Ryzen AI 9 HX 370 / Strix Point): tells ROCm/HIP runtime to
+      # treat the GPU as gfx1100 for kernel dispatch compatibility.
       - HSA_OVERRIDE_GFX_VERSION=11.0.0
 
     volumes:
       # Model weights – avoids re-downloading on container recreate
-      - ./data/models:/app/api/src/models/v1_0
-      # MIOpen kernel shape cache (speeds up RDNA 2 inference after first run)
+      - ./data/models:/app/models
+      # MIOpen kernel shape cache (speeds up inference after first run)
       - ./data/miopen-config:/root/.config/miopen
       - ./data/miopen-cache:/root/.cache/miopen
 
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8880/v1/audio/voices"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8880/health"]
       interval: 30s
       timeout: 10s
       retries: 5
