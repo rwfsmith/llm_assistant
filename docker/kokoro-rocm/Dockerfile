@@ -50,16 +50,18 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && mv /root/.local/bin/uv /usr/local/bin/ \
     && mv /root/.local/bin/uvx /usr/local/bin/ \
-    # Create non-root user and app directory
-    && useradd -m -u 1001 appuser \
-    && mkdir -p /app/api/src/models/v1_0 \
-    && chown -R appuser:appuser /app
+    # Create non-root user
+    && useradd -m -u 1001 appuser
 
 # ── Clone Kokoro-FastAPI source ───────────────────────────────────────────────
-# The source is fetched at build time; no pre-cloned ./src directory required.
+# Clone to a temp path because /app already exists (created above).
+# Move contents in, then ensure the model dir and permissions are set.
 ARG KOKORO_REF
 RUN git clone --depth 1 --branch ${KOKORO_REF} \
-        https://github.com/remsky/Kokoro-FastAPI.git /app \
+        https://github.com/remsky/Kokoro-FastAPI.git /tmp/kokoro \
+    && cp -a /tmp/kokoro/. /app/ \
+    && rm -rf /tmp/kokoro \
+    && mkdir -p /app/api/src/models/v1_0 \
     && chown -R appuser:appuser /app
 
 USER appuser
