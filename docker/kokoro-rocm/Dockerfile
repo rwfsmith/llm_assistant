@@ -81,11 +81,12 @@ RUN uv venv && uv sync --extra rocm
 # When GFX_ARCH is not "gfx1150" this step is a no-op.
 ARG GFX_ARCH
 RUN if [ "${GFX_ARCH}" = "gfx1150" ]; then \
-        echo "==> gfx1150: swapping torch/rocm wheels with AMD staging builds..." && \
+        echo "==> gfx1150: swapping torch wheels with AMD staging builds..." && \
         uv pip install --no-deps \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
             --extra-index-url https://pypi.org/simple \
-            torch torchaudio torchvision "rocm[libraries,devel]"; \
+            --index-strategy unsafe-best-match \
+            torch torchaudio torchvision; \
     else \
         echo "==> GFX_ARCH=${GFX_ARCH:-unset}: skipping gfx1150 staging step."; \
     fi
