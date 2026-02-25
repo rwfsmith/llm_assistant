@@ -26,10 +26,7 @@ Linux host (TrueNAS SCALE, Ubuntu, etc.)         Home Assistant OS
 | RDNA 4 | RX 9070 XT | 7.1.1 | gfx1200 / gfx1201 |
 | CDNA (Instinct) | MI100 – MI350 | 5.x | gfx908 / gfx90a / gfx942 |
 
-`setup.sh` defaults to **ROCm 7.2.0** (which covers all rows above). Override with:
-```bash
-ROCM_VERSION=6.4.4 bash setup.sh   # only if you need the older version for RDNA 2/3
-```
+The `Dockerfile` defaults to **ROCm 7.2** (which covers all rows above). For older RDNA 2/3 cards, set `ROCM_VERSION=6.4` in the compose build args.
 
 ---
 
@@ -58,30 +55,29 @@ This stores model weights and MIOpen cache across container rebuilds.
 # In TrueNAS shell, navigate to the dataset
 cd /mnt/tank/apps/kokoro          # adjust pool/dataset name
 
-# Clone the repo
+# Clone this repo
 git clone https://github.com/rwfsmith/llm_assistant .
-
-# Enter the Docker setup directory
 cd docker/kokoro-rocm
 
-# Clone Kokoro-FastAPI source (required for the ROCm build)
-git clone https://github.com/remsky/Kokoro-FastAPI src
+# Create persistent data directories
+export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/docker/kokoro-rocm/data
+mkdir -p "$KOKORO_DATA_DIR"/{models,miopen-config,miopen-cache}
 
-# Detect GPU group IDs and start the stack
+# Detect GPU group IDs
 export VIDEO_GID=$(getent group video | cut -d: -f3)
 export RENDER_GID=$(getent group render | cut -d: -f3)
-export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/docker/kokoro-rocm/data
 
-# Set your GPU's GFX target (setup.sh injects this into the Dockerfile):
+# Set your GPU arch (used to select native PyTorch wheels at build time):
 #   gfx1150 = Ryzen AI 9 HX 370 / Strix Point (RDNA 3.5)
 #   gfx1100 = RX 7900 XTX / 7800 XT (RDNA 3)
 #   gfx1030 = RX 6800 XT / 6950 XT (RDNA 2)
 export GFX_ARCH=gfx1150
 
+# Build and start (Kokoro-FastAPI source is cloned inside the build)
 docker compose -f truenas-compose.yml up -d --build
 ```
 
-First build takes ~10–20 minutes (downloading the ROCm base image + Kokoro deps).
+First build takes ~10–20 minutes (downloading the ROCm base image + Kokoro deps). No pre-cloning of the Kokoro-FastAPI source is needed.
 
 ### 4. Watch startup
 
@@ -109,12 +105,13 @@ curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER && newgrp docker
 ```
 
-Then clone the repo and run the included setup script:
+Then clone the repo and start:
 
 ```bash
 cd docker/kokoro-rocm
+mkdir -p data/{models,miopen-config,miopen-cache}
 export GFX_ARCH=gfx1150   # set to your GPU's target
-bash setup.sh          # clones Kokoro-FastAPI source, patches Dockerfile, starts stack
+docker compose up -d --build
 ```
 
 Verify:
@@ -160,11 +157,15 @@ Restart: subsequent runs will be **significantly faster**.
 
 ## Updating Kokoro-FastAPI
 
+The compose file has a `KOKORO_REF: master` build arg. A rebuild always pulls the latest commit from that branch:
+
 ```bash
 cd docker/kokoro-rocm
-git -C src pull
-docker compose up -d --build
+docker compose build --no-cache kokoro-tts
+docker compose up -d
 ```
+
+To pin a specific version, edit `KOKORO_REF` in the compose file to a tag or SHA (e.g. `v0.2.4-master`).
 
 ---
 
@@ -216,8 +217,9 @@ The GPU may be fully PCIe-passed-through to a VM, which removes it from the host
 2. Use the GPU on the TrueNAS host only — do not pass it through to any VM
 
 **gfx1150 / Ryzen AI 9 HX 370 (Strix Point)**
-`setup.sh` automatically installs AMD's staging gfx1150-native PyTorch wheels from `rocm.nightlies.amd.com` when `GFX_ARCH=gfx1150` is set. These replace the generic ROCm torch wheels with builds that include compiled kernels for gfx1150, eliminating the need for `HSA_OVERRIDE_GFX_VERSION`. MIOpen will still do a one-time kernel search on first startup (may take several minutes). If you still hit `miopenStatusUnknownError`, ensure `MIOPEN_FIND_MODE=3` and `MIOPEN_FIND_ENFORCE=3` are set and do a full no-cache rebuild:
+When `GFX_ARCH=gfx1150` is passed as a build arg, the `Dockerfile` automatically installs AMD's native gfx1150 PyTorch wheels from the staging index (`rocm.nightlies.amd.com/v2-staging/gfx1150/`). These replace the generic ROCm wheels with builds that include compiled kernels for gfx1150 — no `HSA_OVERRIDE_GFX_VERSION` is needed. MIOpen will do a one-time JIT kernel search on first startup (may take several minutes with `MIOPEN_FIND_MODE=3`). If you hit `miopenStatusUnknownError`, do a full no-cache rebuild:
 ```bash
+export GFX_ARCH=gfx1150
 docker compose -f truenas-compose.yml build --no-cache kokoro-tts
 docker compose -f truenas-compose.yml up -d
 ```

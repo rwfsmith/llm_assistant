@@ -1,0 +1,14 @@
+# Exclude files that aren't needed in the Docker build context.
+# The kokoro-tts service clones its source during the build;
+# nothing from this directory is COPYed into the image.
+
+# Wyoming sidecar (has its own build context in docker-compose.yml)
+wyoming/
+
+# Persistent data volumes
+data/
+
+# Compose files and docs (not used in the build)
+*.yml
+*.md
+setup.sh

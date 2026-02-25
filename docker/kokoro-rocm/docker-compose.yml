@@ -1,22 +1,25 @@
 # docker-compose.yml – Kokoro-FastAPI with ROCm (AMD GPU) support
 #
-# Prerequisites:
-#   - Run setup.sh first to clone the Kokoro-FastAPI source into ./src/
-#   - ROCm drivers installed: https://rocm.docs.amd.com/en/latest/deploy/linux/
-#   - User is in the 'render' and 'video' groups (or run as root)
+# Quick start (no setup script needed):
+#   export VIDEO_GID=$(getent group video | cut -d: -f3)
+#   export RENDER_GID=$(getent group render | cut -d: -f3)
+#   export GFX_ARCH=gfx1150   # set your GPU arch (see Dockerfile for options)
+#   docker compose up -d --build
 #
-# Quick start:
-#   bash setup.sh          # first run (clones source + starts container)
-#   docker compose up -d   # subsequent starts
+# The Dockerfile clones Kokoro-FastAPI source at build time.
+# On rebuild: docker compose build --no-cache
 
 name: kokoro-rocm
 
 services:
   kokoro-tts:
     build:
-      # Build context is the cloned Kokoro-FastAPI source tree
-      context: ./src
-      dockerfile: docker/rocm/Dockerfile
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROCM_VERSION: "7.2"
+        GFX_ARCH: ${GFX_ARCH:-}
+        KOKORO_REF: master
 
     container_name: kokoro-tts-rocm
 
