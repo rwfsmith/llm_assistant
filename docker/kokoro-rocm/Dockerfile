@@ -84,8 +84,6 @@ RUN if [ "${GFX_ARCH}" = "gfx1150" ]; then \
         echo "==> gfx1150: swapping torch wheels with AMD staging builds..." && \
         uv pip install --no-deps \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            --extra-index-url https://pypi.org/simple \
-            --index-strategy unsafe-best-match \
             --upgrade \
             rocm[libraries,devel] torch torchaudio torchvision; \
     else \
