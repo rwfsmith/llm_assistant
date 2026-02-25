@@ -61,7 +61,7 @@ cd docker/kokoro-rocm
 
 # Create persistent data directories
 export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/docker/kokoro-rocm/data
-mkdir -p "$KOKORO_DATA_DIR"/{models,miopen-config,miopen-cache}
+sudo -E mkdir -p "$KOKORO_DATA_DIR"/{models,miopen-config,miopen-cache}
 
 # Detect GPU group IDs
 export VIDEO_GID=$(getent group video | cut -d: -f3)
