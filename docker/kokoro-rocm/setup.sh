@@ -27,8 +27,17 @@ KOKORO_REPO="https://github.com/remsky/Kokoro-FastAPI.git"
 # 7.2.0 is required for gfx1150 (Strix Point / Ryzen AI 9 HX 370) and RDNA 4.
 # Set to 6.4.4 for older RDNA 2/3 cards if you have image pull issues.
 ROCM_VERSION="${ROCM_VERSION:-7.2.0}"
-# Short form used in PyTorch wheel URLs (e.g. "7.2" from "7.2.0")
+# Short form used in PyTorch wheel URLs and ROCm 7.x image tags (e.g. "7.2" from "7.2.0")
 ROCM_SHORT="$(echo "$ROCM_VERSION" | cut -d. -f1-2)"
+ROCM_MAJOR="$(echo "$ROCM_VERSION" | cut -d. -f1)"
+
+# ROCm 6.x tags: X.Y.Z-complete  (e.g. 6.4.4-complete)
+# ROCm 7.x tags: X.Y-complete    (e.g. 7.2-complete)
+if [ "$ROCM_MAJOR" -ge 7 ]; then
+    ROCM_IMAGE_TAG="${ROCM_SHORT}-complete"
+else
+    ROCM_IMAGE_TAG="${ROCM_VERSION}-complete"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Clone / update Kokoro-FastAPI source
@@ -46,10 +55,10 @@ fi
 # ---------------------------------------------------------------------------
 ROCM_DOCKERFILE="$SRC_DIR/docker/rocm/Dockerfile"
 if [ -f "$ROCM_DOCKERFILE" ]; then
-    echo "==> Patching ROCm Dockerfile: base image → rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete"
+    echo "==> Patching ROCm Dockerfile: base image → rocm/dev-ubuntu-24.04:${ROCM_IMAGE_TAG}"
     # Replace the FROM base image (any rocm/dev-ubuntu-* tag)
     sed -i -E \
-        "s|FROM rocm/dev-ubuntu-[^:]+:[^[:space:]]+|FROM rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete|g" \
+        "s|FROM rocm/dev-ubuntu-[^:]+:[^[:space:]]+|FROM rocm/dev-ubuntu-24.04:${ROCM_IMAGE_TAG}|g" \
         "$ROCM_DOCKERFILE"
 
     # Replace the PyTorch ROCm wheel URL (e.g. rocm6.4 → rocm7.2)
@@ -58,7 +67,7 @@ if [ -f "$ROCM_DOCKERFILE" ]; then
         "s|rocm[0-9]+\\.[0-9]+(\\.[0-9]+)?|rocm${ROCM_SHORT}|g" \
         "$ROCM_DOCKERFILE"
 
-    echo "==> Dockerfile patched (ROCm ${ROCM_VERSION}, PyTorch wheel rocm${ROCM_SHORT})"
+    echo "==> Dockerfile patched (image tag ${ROCM_IMAGE_TAG}, PyTorch wheel rocm${ROCM_SHORT})"
 else
     echo "==> Warning: $ROCM_DOCKERFILE not found – skipping patch"
 fi
