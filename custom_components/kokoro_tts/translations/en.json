@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kokoro TTS – Server",
+        "description": "Enter the URL of your Kokoro-FastAPI server.",
+        "data": {
+          "base_url": "Server URL (e.g. http://localhost:8880)"
+        }
+      },
+      "voice": {
+        "title": "Kokoro TTS – Voice & Settings",
+        "description": "Choose the default voice and audio settings.",
+        "data": {
+          "voice": "Default Voice",
+          "speed": "Speech Speed",
+          "response_format": "Audio Format",
+          "lang_code": "Language Override (leave blank for auto-detect)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Kokoro TTS",
+        "data": {
+          "base_url": "Server URL",
+          "voice": "Default Voice",
+          "speed": "Speech Speed",
+          "response_format": "Audio Format",
+          "lang_code": "Language Override"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the Kokoro-FastAPI server.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "Already configured.",
+      "reconfigure_successful": "Reconfigured successfully."
+    }
+  }
+}

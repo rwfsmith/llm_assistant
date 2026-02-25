@@ -1,0 +1,5 @@
+# Kokoro-FastAPI cloned source (populated by setup.sh)
+src/
+
+# Downloaded model weights and MIOpen cache
+data/

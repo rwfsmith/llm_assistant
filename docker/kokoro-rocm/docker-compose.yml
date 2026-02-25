@@ -1,0 +1,102 @@
+# docker-compose.yml – Kokoro-FastAPI with ROCm (AMD GPU) support
+#
+# Prerequisites:
+#   - Run setup.sh first to clone the Kokoro-FastAPI source into ./src/
+#   - ROCm drivers installed: https://rocm.docs.amd.com/en/latest/deploy/linux/
+#   - User is in the 'render' and 'video' groups (or run as root)
+#
+# Quick start:
+#   bash setup.sh          # first run (clones source + starts container)
+#   docker compose up -d   # subsequent starts
+
+name: kokoro-rocm
+
+services:
+  kokoro-tts:
+    build:
+      # Build context is the cloned Kokoro-FastAPI source tree
+      context: ./src
+      dockerfile: docker/rocm/Dockerfile
+
+    container_name: kokoro-tts-rocm
+
+    restart: unless-stopped
+
+    ports:
+      - "8880:8880"
+
+    # --- AMD GPU passthrough ---
+    devices:
+      - /dev/dri   # GPU render nodes (e.g. /dev/dri/renderD128)
+      - /dev/kfd   # ROCm kernel fusion driver
+
+    group_add:
+      # Group IDs for: video (44), render (109 on most distros – check with
+      # `getent group render | cut -d: -f3`). Override with env vars if needed.
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-109}"
+
+    environment:
+      - USE_GPU=true
+      - DEVICE=gpu
+      - DOWNLOAD_MODEL=true
+      - PYTHONUNBUFFERED=1
+      # ROCm performance tuning
+      - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+      # Uncomment during first run on RDNA 2 to build MIOpen kernel shapes:
+      # - MIOPEN_FIND_MODE=3
+      # - MIOPEN_FIND_ENFORCE=3
+      # After initial tuning, replace with:
+      # - MIOPEN_FIND_MODE=2
+
+    volumes:
+      # Model weights – avoids re-downloading on container recreate
+      - ./data/models:/app/api/src/models/v1_0
+      # MIOpen kernel shape cache (speeds up RDNA 2 inference after first run)
+      - ./data/miopen-config:/root/.config/miopen
+      - ./data/miopen-cache:/root/.cache/miopen
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8880/v1/audio/voices"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    # Optional: limit to a specific GPU by PCI bus ID
+    # Uncomment and adjust if you have multiple AMD GPUs:
+    # environment:
+    #   - ROCR_VISIBLE_DEVICES=0
+
+  # ---------------------------------------------------------------------------
+  # Wyoming protocol proxy – exposes Kokoro-FastAPI as a Wyoming TTS service
+  # so Home Assistant can use it via the built-in Wyoming integration on
+  # port 10200 (TCP), in addition to the OpenAI-compatible HTTP API.
+  # ---------------------------------------------------------------------------
+  kokoro-wyoming:
+    build:
+      context: ./wyoming
+      dockerfile: Dockerfile
+
+    container_name: kokoro-wyoming
+
+    restart: unless-stopped
+
+    ports:
+      - "10200:10200"
+
+    depends_on:
+      kokoro-tts:
+        condition: service_healthy
+
+    environment:
+      # URL of the Kokoro-FastAPI service (internal Docker network name)
+      - KOKORO_URL=http://kokoro-tts:8880
+      # Default voice when the client does not request a specific one
+      - DEFAULT_VOICE=${KOKORO_DEFAULT_VOICE:-af_bella}
+      - DEFAULT_SPEED=${KOKORO_DEFAULT_SPEED:-1.0}
+
+    command: >
+      --kokoro-url http://kokoro-tts:8880
+      --voice ${KOKORO_DEFAULT_VOICE:-af_bella}
+      --speed ${KOKORO_DEFAULT_SPEED:-1.0}

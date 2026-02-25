@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kokoro TTS – Server",
+        "description": "Enter the URL of your Kokoro-FastAPI server.",
+        "data": {
+          "base_url": "Server URL (e.g. http://localhost:8880)"
+        },
+        "data_description": {
+          "base_url": "Do not include a trailing slash or /v1. The integration will discover voices automatically."
+        }
+      },
+      "voice": {
+        "title": "Kokoro TTS – Voice & Settings",
+        "description": "Choose the default voice and audio settings.",
+        "data": {
+          "voice": "Default Voice",
+          "speed": "Speech Speed",
+          "response_format": "Audio Format",
+          "lang_code": "Language Override (leave blank for auto-detect)"
+        },
+        "data_description": {
+          "voice": "Voice names starting with 'a' are American English, 'b' are British English, 'j' are Japanese, 'z' are Mandarin Chinese. You can also mix voices using + (e.g. af_bella+af_sky).",
+          "speed": "1.0 is normal speed. Range: 0.25 (slow) to 4.0 (fast).",
+          "response_format": "MP3 is recommended for broadest HA compatibility.",
+          "lang_code": "Override the language/phonemizer. Leave blank for automatic detection based on the voice name."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Kokoro TTS",
+        "data": {
+          "base_url": "Server URL",
+          "voice": "Default Voice",
+          "speed": "Speech Speed",
+          "response_format": "Audio Format",
+          "lang_code": "Language Override"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the Kokoro-FastAPI server. Make sure it is running and the URL is correct.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This Kokoro server is already configured.",
+      "reconfigure_successful": "Reconfigured successfully."
+    }
+  }
+}
