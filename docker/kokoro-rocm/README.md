@@ -16,6 +16,21 @@ Linux host (TrueNAS SCALE, Ubuntu, etc.)         Home Assistant OS
   └─────────────────────────────┘                  └──────────────────┘
 ```
 
+## GPU Compatibility
+
+| GPU family | Example cards | Min ROCm | LLVM target |
+|------------|---------------|----------|-------------|
+| RDNA 2 | RX 6600 – 6950 XT | 5.x | gfx1030 |
+| RDNA 3 | RX 7600 – 7900 XTX | 6.x | gfx1100 / gfx1101 |
+| RDNA 3.5 / Strix Point | **Ryzen AI 9 HX 370** | **7.1.1** | **gfx1150** |
+| RDNA 4 | RX 9070 XT | 7.1.1 | gfx1200 / gfx1201 |
+| CDNA (Instinct) | MI100 – MI350 | 5.x | gfx908 / gfx90a / gfx942 |
+
+`setup.sh` defaults to **ROCm 7.2.0** (which covers all rows above). Override with:
+```bash
+ROCM_VERSION=6.4.4 bash setup.sh   # only if you need the older version for RDNA 2/3
+```
+
 ---
 
 ## Option 1 – TrueNAS SCALE (recommended for HAOS-on-VM setups)
@@ -192,6 +207,12 @@ Where `<HOST_IP>` is the IP address of the machine running Docker. Use `http://l
 The GPU may be fully PCIe-passed-through to a VM, which removes it from the host. To use the GPU for Kokoro while also having HAOS, you have two options:
 1. Run Kokoro on a **separate Ubuntu VM** with PCIe passthrough (not HAOS)
 2. Use the GPU on the TrueNAS host only — do not pass it through to any VM
+
+**gfx1150 "Unsupported target" or falls back to CPU (Ryzen AI 9 HX 370 / Strix Point)**
+This GPU requires ROCm 7.1.1+. `setup.sh` defaults to ROCm 7.2.0 and patches Kokoro-FastAPI's Dockerfile automatically. If you cloned before this fix or are using a pre-built image, add this to the `environment:` section of the compose file:
+```yaml
+- HSA_OVERRIDE_GFX_VERSION=11.0.0
+```
 
 **Container exits immediately**
 - Check logs: `docker compose logs kokoro-tts` (or `docker compose -f truenas-compose.yml logs kokoro-tts`)

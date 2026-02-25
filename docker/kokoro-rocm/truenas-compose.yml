@@ -54,6 +54,11 @@ services:
       # Uncomment for first run on RDNA 2 (RX 6000 series):
       # - MIOPEN_FIND_MODE=3
       # - MIOPEN_FIND_ENFORCE=3
+      #
+      # gfx1150 (Ryzen AI 9 HX 370, Strix Point) – officially supported in ROCm 7.1.1+.
+      # setup.sh patches the Dockerfile to use ROCm 7.2.0 automatically.
+      # If you still see "Unsupported target" errors, uncomment:
+      # - HSA_OVERRIDE_GFX_VERSION=11.0.0
 
     volumes:
       # Point KOKORO_DATA_DIR at a TrueNAS dataset path, e.g.:
