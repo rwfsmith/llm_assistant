@@ -61,11 +61,8 @@ services:
       - MIOPEN_FIND_MODE=3
       - MIOPEN_FIND_ENFORCE=3
       #
-      # gfx1150 (Ryzen AI 9 HX 370, Strix Point) – officially supported in ROCm 7.1.1+.
-      # setup.sh patches the Dockerfile to use ROCm 7.2.0 automatically.
-      # PyTorch ROCm wheels don't include gfx1150 kernels yet; override to use
-      # the binary-compatible gfx1100 (RDNA 3) kernels instead:
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+      # gfx1150 (Ryzen AI 9 HX 370, Strix Point) – setup.sh injects native gfx1150
+      # PyTorch staging wheels from rocm.nightlies.amd.com. No HSA override needed.
 
     volumes:
       # Point KOKORO_DATA_DIR at a TrueNAS dataset path, e.g.:

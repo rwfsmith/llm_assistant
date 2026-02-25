@@ -111,6 +111,37 @@ PYEOF
 
     echo "==> Dockerfile patched (image tag ${ROCM_IMAGE_TAG}, ROCM_VERSION=${ROCM_SHORT})"
 
+    # 7. For gfx1150: replace the generic ROCm torch wheels with AMD's staging
+    #    gfx1150-native builds. These include native kernels so no HSA override needed.
+    #    Staging index: https://rocm.nightlies.amd.com/v2-staging/gfx1150/
+    if [ "${GFX_ARCH:-}" = "gfx1150" ]; then
+        echo "==> Injecting gfx1150 staging PyTorch install into Dockerfile"
+        python3 - "$ROCM_DOCKERFILE" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+text = open(path).read()
+# Insert a RUN layer after the uv sync step that replaces torch/torchaudio/torchvision
+# with gfx1150-native staging builds and initialises the ROCm SDK.
+staging_run = (
+    "\n"
+    "# Install gfx1150-native PyTorch staging builds (replaces the generic ROCm wheels)\n"
+    "RUN /app/.venv/bin/pip install --no-deps --force-reinstall \\\n"
+    "    --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \\\n"
+    "    torch torchaudio torchvision && \\\n"
+    "    /app/.venv/bin/python -m rocm_sdk init 2>/dev/null || \\\n"
+    "    /app/.venv/bin/rocm-sdk init 2>/dev/null || true\n"
+)
+# Insert right after the uv sync line (end of that RUN block)
+text = re.sub(
+    r'(uv sync --extra rocm\n)',
+    r'\1' + staging_run,
+    text
+)
+open(path, 'w').write(text)
+print("  gfx1150 staging PyTorch injection added.")
+PYEOF
+    fi
+
     # 6. Patch kdb_install.sh to warn instead of exit 1 when no kdb files exist.
     #    gfx1150 and other newer GPUs don't have pre-built MIOpen kernel shape files
     #    in AMD's apt repo yet. Without this, the Docker build fails. MIOpen will

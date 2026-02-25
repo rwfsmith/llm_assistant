@@ -215,8 +215,8 @@ The GPU may be fully PCIe-passed-through to a VM, which removes it from the host
 1. Run Kokoro on a **separate Ubuntu VM** with PCIe passthrough (not HAOS)
 2. Use the GPU on the TrueNAS host only — do not pass it through to any VM
 
-**gfx1150 "HIP error: invalid device function" (Ryzen AI 9 HX 370 / Strix Point)**
-PyTorch ROCm wheels don't include compiled gfx1150 kernels yet. The compose files set `HSA_OVERRIDE_GFX_VERSION=11.0.0` by default, which tells HIP to use the binary-compatible gfx1100 (RDNA 3) kernels. If you built before this fix, do a full no-cache rebuild:
+**gfx1150 / Ryzen AI 9 HX 370 (Strix Point)**
+`setup.sh` automatically installs AMD's staging gfx1150-native PyTorch wheels from `rocm.nightlies.amd.com` when `GFX_ARCH=gfx1150` is set. These replace the generic ROCm torch wheels with builds that include compiled kernels for gfx1150, eliminating the need for `HSA_OVERRIDE_GFX_VERSION`. MIOpen will still do a one-time kernel search on first startup (may take several minutes). If you still hit `miopenStatusUnknownError`, ensure `MIOPEN_FIND_MODE=3` and `MIOPEN_FIND_ENFORCE=3` are set and do a full no-cache rebuild:
 ```bash
 docker compose -f truenas-compose.yml build --no-cache kokoro-tts
 docker compose -f truenas-compose.yml up -d
