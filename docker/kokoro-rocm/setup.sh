@@ -110,6 +110,34 @@ PYEOF
     fi
 
     echo "==> Dockerfile patched (image tag ${ROCM_IMAGE_TAG}, ROCM_VERSION=${ROCM_SHORT})"
+
+    # 6. Patch kdb_install.sh to warn instead of exit 1 when no kdb files exist.
+    #    gfx1150 and other newer GPUs don't have pre-built MIOpen kernel shape files
+    #    in AMD's apt repo yet. Without this, the Docker build fails. MIOpen will
+    #    JIT-compile the kernels at runtime on first use instead (slower first request,
+    #    but otherwise fully functional).
+    KDB_INSTALL="$SRC_DIR/docker/rocm/kdb_install.sh"
+    if [ -f "$KDB_INSTALL" ]; then
+        echo "==> Patching kdb_install.sh: missing kdb files → warning (not fatal error)"
+        python3 - "$KDB_INSTALL" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+text = open(path).read()
+# 1. Make "No MIOpen kdb files found" non-fatal (both Ubuntu and RHEL variants).
+text = re.sub(
+    r'(echo\s+-e\s+"ERROR: No MIOpen kernel database files found[^"]*")\s*\n(\s*)exit 1',
+    r'\1\n\2echo "WARNING: No kdb files for this arch in AMD repo; MIOpen will JIT-compile at runtime."\n\2continue',
+    text
+)
+# 2. Make the final cp conditional so it doesn't fail when no kdb files were downloaded.
+text = text.replace(
+    'cp -ra opt/rocm-*/share/miopen $TORCH_INSTALL_PATH/torch/share',
+    'if ls opt/rocm-*/share/miopen 2>/dev/null | head -1 | grep -q .; then\n    cp -ra opt/rocm-*/share/miopen $TORCH_INSTALL_PATH/torch/share\nelse\n    echo "No kdb files to copy; MIOpen will JIT-compile kernels at runtime."\nfi'
+)
+open(path, 'w').write(text)
+print("  kdb_install.sh patched.")
+PYEOF
+    fi
 else
     echo "==> Warning: $ROCM_DOCKERFILE not found – skipping patch"
 fi
