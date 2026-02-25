@@ -1,66 +1,101 @@
 # Kokoro TTS – ROCm Docker Setup
 
-This directory contains everything needed to run [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) with **AMD GPU (ROCm)** acceleration in Docker.
+Runs [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) with **AMD GPU (ROCm)** acceleration in Docker, plus a **Wyoming protocol proxy** so Home Assistant can use it natively for voice pipelines.
 
-The resulting server exposes an OpenAI-compatible TTS API on port `8880` that the **Kokoro TTS** Home Assistant integration connects to.
+## Architecture
+
+> **HAOS and ROCm cannot share the same machine.** HAOS is a locked-down OS with no kernel module support. ROCm's userspace lives entirely inside the container image — the host only needs the `amdgpu`/`amdkfd` kernel modules, which are **upstreamed into the standard Linux kernel** (5.x+). No ROCm host installation is required on modern Linux.
+
+```
+Linux host (TrueNAS SCALE, Ubuntu, etc.)         Home Assistant OS
+  /dev/kfd  /dev/dri  ↕ kernel modules           VM or separate machine
+  ┌─────────────────────────────┐                  ┌──────────────────┐
+  │ Docker                      │                  │                  │
+  │  kokoro-tts  (port 8880)   │◄── LAN ─────────►│ Wyoming          │
+  │  kokoro-wyoming (port 10200)│                  │ integration      │
+  └─────────────────────────────┘                  └──────────────────┘
+```
 
 ---
 
-## Requirements
+## Option 1 – TrueNAS SCALE (recommended for HAOS-on-VM setups)
 
-### Host OS
-- Linux (Ubuntu 22.04 / 24.04 recommended) or Windows with WSL 2
-- ROCm-compatible AMD GPU: RX 6000, RX 7000, RX 9000, Instinct series
+TrueNAS SCALE runs a standard Linux 6.6 kernel, so `/dev/kfd` and `/dev/dri` exist without any extra installation. Docker is available from the TrueNAS shell.
 
-### ROCm Drivers
-Install the ROCm stack on the host **before** running Docker:
+### 1. Verify GPU device nodes
+
+SSH into TrueNAS or open **System → Shell**:
 
 ```bash
-# Ubuntu 22.04 / 24.04 – quick install
+ls -la /dev/kfd /dev/dri/renderD*
+# Both must exist. If /dev/kfd is missing, check the AMD GPU is not
+# fully passed-through to a VM (PCIe passthrough removes it from the host).
+```
+
+### 2. Create a dataset for app data
+
+In the TrueNAS UI: **Storage → Create Dataset** → e.g. `tank/apps/kokoro`.
+This stores model weights and MIOpen cache across container rebuilds.
+
+### 3. Clone and start
+
+```bash
+# In TrueNAS shell, navigate to the dataset
+cd /mnt/tank/apps/kokoro          # adjust pool/dataset name
+
+# Clone the repo
+git clone https://github.com/rwfsmith/llm_assistant .
+
+# Enter the Docker setup directory
+cd docker/kokoro-rocm
+
+# Clone Kokoro-FastAPI source (required for the ROCm build)
+git clone https://github.com/remsky/Kokoro-FastAPI src
+
+# Detect GPU group IDs and start the stack
+export VIDEO_GID=$(getent group video | cut -d: -f3)
+export RENDER_GID=$(getent group render | cut -d: -f3)
+export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/docker/kokoro-rocm/data
+
+docker compose -f truenas-compose.yml up -d --build
+```
+
+First build takes ~10–20 minutes (downloading the ROCm base image + Kokoro deps).
+
+### 4. Watch startup
+
+```bash
+docker compose -f truenas-compose.yml logs -f kokoro-tts
+```
+
+Ready when you see: `Application startup complete.`
+
+---
+
+## Option 2 – Generic Linux (Ubuntu 22.04 / 24.04)
+
+On a standard Linux desktop/server the ROCm userspace is still in the container, but if you want `rocminfo` and other host-side tools too:
+
+```bash
+# Optional: install host ROCm tools
 wget https://repo.radeon.com/amdgpu-install/6.4.4/ubuntu/jammy/amdgpu-install_6.4.4.60404-1_all.deb
 sudo apt install ./amdgpu-install_6.4.4.60404-1_all.deb
 sudo amdgpu-install --usecase=rocm
-sudo reboot
+sudo usermod -aG render,video $USER && newgrp render
 
-# Add your user to the required groups
-sudo usermod -aG render,video $USER
-newgrp render
-```
-
-Verify ROCm is working:
-```bash
-rocminfo | grep "Agent 2"   # should show your GPU
-```
-
-### Docker
-```bash
-# Install Docker Engine (not Docker Desktop)
+# Install Docker Engine
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
+sudo usermod -aG docker $USER && newgrp docker
 ```
 
----
-
-## Quick Start
+Then clone the repo and run the included setup script:
 
 ```bash
-# 1. Clone this repo (or navigate here if already cloned)
 cd docker/kokoro-rocm
-
-# 2. Run setup (clones Kokoro-FastAPI source, builds image, starts container)
-bash setup.sh
-
-# 3. Watch logs until model downloads and server is ready (~2 min first time)
-docker compose logs -f kokoro-tts
+bash setup.sh          # clones Kokoro-FastAPI source, detects GIDs, starts stack
 ```
 
-The server is ready when you see:
-```
-Application startup complete.
-```
-
-Verify it works:
+Verify:
 ```bash
 curl http://localhost:8880/v1/audio/voices
 ```
@@ -153,18 +188,26 @@ Where `<HOST_IP>` is the IP address of the machine running Docker. Use `http://l
 
 ## Troubleshooting
 
+**`/dev/kfd` does not exist (TrueNAS SCALE)**
+The GPU may be fully PCIe-passed-through to a VM, which removes it from the host. To use the GPU for Kokoro while also having HAOS, you have two options:
+1. Run Kokoro on a **separate Ubuntu VM** with PCIe passthrough (not HAOS)
+2. Use the GPU on the TrueNAS host only — do not pass it through to any VM
+
 **Container exits immediately**
-- Check `docker compose logs kokoro-tts` for the error
+- Check logs: `docker compose logs kokoro-tts` (or `docker compose -f truenas-compose.yml logs kokoro-tts`)
 - Ensure `/dev/kfd` and `/dev/dri` exist: `ls -la /dev/kfd /dev/dri`
 
-**No GPU acceleration**
-- Run `rocminfo` on the host to verify ROCm is working
-- Check group membership: `groups $USER` must include `render` and `video`
+**No GPU acceleration / falls back to CPU**
+- Test GPU access: `docker run --rm --device /dev/kfd --device /dev/dri rocm/dev-ubuntu-24.04:6.4.4-complete rocminfo`
+- Check group IDs: `getent group render video` — make sure the GIDs match what's in `group_add`
 
 **Wrong render GID**
 - Find the correct GID: `getent group render | cut -d: -f3`
-- Override in `docker-compose.yml` under `group_add` or export before running setup: `export RENDER_GID=110`
+- Export before starting: `export RENDER_GID=$(getent group render | cut -d: -f3)`
+
+**TrueNAS: `git` or `docker compose` not found**
+- TrueNAS SCALE has both in the default shell. If missing, use the TrueNAS App catalog to install Docker, or SSH in.
 
 **Model not downloading**
 - The container needs internet access. Check proxy/firewall settings.
-- Models are cached in `./data/models/` – delete to force re-download.
+- Models are cached in `data/models/` (or `$KOKORO_DATA_DIR/models/`) — delete to force re-download.

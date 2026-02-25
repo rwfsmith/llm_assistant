@@ -1,0 +1,90 @@
+# truenas-compose.yml – Kokoro-FastAPI + Wyoming proxy for TrueNAS SCALE
+#
+# Run from TrueNAS shell (System Settings → Shell or SSH):
+#
+#   cd /mnt/<pool>/<dataset>/kokoro          ← navigate to your dataset
+#   git clone https://github.com/rwfsmith/llm_assistant . 2>/dev/null || true
+#   cd docker/kokoro-rocm
+#   bash setup.sh                            ← clones Kokoro-FastAPI source
+#
+# Then start with this file:
+#   export VIDEO_GID=$(getent group video | cut -d: -f3)
+#   export RENDER_GID=$(getent group render | cut -d: -f3)
+#   docker compose -f truenas-compose.yml up -d
+#
+# No ROCm host installation required – TrueNAS SCALE's Linux kernel (6.6+)
+# includes the amdgpu/amdkfd modules. The full ROCm runtime is inside the image.
+#
+# Verify GPU is accessible:
+#   ls -la /dev/kfd /dev/dri        ← must exist
+#   docker run --rm --device /dev/kfd --device /dev/dri \
+#     rocm/dev-ubuntu-24.04:6.4.4-complete rocminfo | grep "Agent 2"
+
+name: kokoro-rocm
+
+x-data-dir: &data-dir ${KOKORO_DATA_DIR:-./data}
+
+services:
+  kokoro-tts:
+    build:
+      context: ./src
+      dockerfile: docker/rocm/Dockerfile
+
+    container_name: kokoro-tts-rocm
+    restart: unless-stopped
+
+    ports:
+      - "8880:8880"
+
+    # --- AMD GPU passthrough ---
+    devices:
+      - /dev/dri
+      - /dev/kfd
+
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-109}"
+
+    environment:
+      - USE_GPU=true
+      - DEVICE=gpu
+      - DOWNLOAD_MODEL=true
+      - PYTHONUNBUFFERED=1
+      - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+      # Uncomment for first run on RDNA 2 (RX 6000 series):
+      # - MIOPEN_FIND_MODE=3
+      # - MIOPEN_FIND_ENFORCE=3
+
+    volumes:
+      # Point KOKORO_DATA_DIR at a TrueNAS dataset path, e.g.:
+      #   export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/data
+      - ${KOKORO_DATA_DIR:-./data}/models:/app/api/src/models/v1_0
+      - ${KOKORO_DATA_DIR:-./data}/miopen-config:/root/.config/miopen
+      - ${KOKORO_DATA_DIR:-./data}/miopen-cache:/root/.cache/miopen
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8880/v1/audio/voices"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  kokoro-wyoming:
+    build:
+      context: ./wyoming
+      dockerfile: Dockerfile
+
+    container_name: kokoro-wyoming
+    restart: unless-stopped
+
+    ports:
+      - "10200:10200"
+
+    depends_on:
+      kokoro-tts:
+        condition: service_healthy
+
+    command: >
+      --kokoro-url http://kokoro-tts:8880
+      --voice ${KOKORO_DEFAULT_VOICE:-af_bella}
+      --speed ${KOKORO_DEFAULT_SPEED:-1.0}
