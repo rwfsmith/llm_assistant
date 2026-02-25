@@ -67,8 +67,11 @@ services:
       - MIOPEN_FIND_MODE=3
       - MIOPEN_FIND_ENFORCE=3
       #
-      # gfx1150 (Ryzen AI 9 HX 370, Strix Point) – setup.sh injects native gfx1150
-      # PyTorch staging wheels from rocm.nightlies.amd.com. No HSA override needed.
+      # gfx1150 (Ryzen AI 9 HX 370, Strix Point): rocm-sdk is installed at build
+      # time to provide native gfx1150 kernels. HSA_OVERRIDE tells PyTorch to
+      # use gfx1100 compiled kernels as a fallback if rocm-sdk init did not fully
+      # replace them. Remove once gfx1150 is fully upstreamed in a stable release.
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
 
     volumes:
       # Point KOKORO_DATA_DIR at a TrueNAS dataset path, e.g.:

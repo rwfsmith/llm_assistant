@@ -68,20 +68,29 @@ USER appuser
 WORKDIR /app
 
 # ── Install Python dependencies (ROCm extras) ─────────────────────────────────
-RUN uv venv --python 3.12 && uv sync --extra rocm
+# uv respects the Python version in pyproject.toml (.python-version / requires-python).
+# Kokoro-FastAPI uses Python 3.10; do not override it.
+RUN uv venv && uv sync --extra rocm
 
-# ── gfx1150: replace generic ROCm PyTorch wheels with AMD staging builds ──────
-# Standard PyTorch/ROCm wheels have no compiled gfx1150 kernels.
-# AMD's staging index provides native builds for Strix Point (RDNA 3.5).
+# ── gfx1150: install AMD rocm-sdk and configure for Strix Point ───────────────
+# The generic ROCm PyTorch wheels have no compiled gfx1150 kernels, causing
+# "HIP error: invalid device function" at runtime.  AMD's staging index ships
+# a `rocm` Python package (rocm-sdk) that installs gfx1150-native ROCm
+# libraries and patches the existing torch installation via `rocm-sdk init`.
+# This is architecture-agnostic to the Python version, unlike swapping wheels.
 # When GFX_ARCH is not "gfx1150" this step is a no-op.
 ARG GFX_ARCH
 RUN if [ "${GFX_ARCH}" = "gfx1150" ]; then \
-        echo "==> Installing gfx1150-native PyTorch staging wheels..." && \
-        /app/.venv/bin/pip install --no-deps --force-reinstall \
-            --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            torch torchaudio torchvision && \
-        ( /app/.venv/bin/python -m rocm_sdk init 2>/dev/null || \
-          /app/.venv/bin/rocm-sdk init 2>/dev/null || true ); \
+        echo "==> gfx1150: installing rocm-sdk from AMD staging index..." && \
+        /app/.venv/bin/pip install \
+            --extra-index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
+            "rocm[libraries,devel]" && \
+        echo "==> Running rocm-sdk init for gfx1150..." && \
+        ( /app/.venv/bin/python -m rocm_sdk init || \
+          /app/.venv/bin/rocm-sdk init ) && \
+        echo "==> rocm-sdk init complete."; \
+    else \
+        echo "==> GFX_ARCH=${GFX_ARCH:-unset}: skipping gfx1150 staging step."; \
     fi
 
 # ── MIOpen kernel database (best-effort) ──────────────────────────────────────
