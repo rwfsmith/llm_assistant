@@ -55,19 +55,61 @@ fi
 # ---------------------------------------------------------------------------
 ROCM_DOCKERFILE="$SRC_DIR/docker/rocm/Dockerfile"
 if [ -f "$ROCM_DOCKERFILE" ]; then
-    echo "==> Patching ROCm Dockerfile: base image → rocm/dev-ubuntu-24.04:${ROCM_IMAGE_TAG}"
-    # Replace the FROM base image (any rocm/dev-ubuntu-* tag)
+    echo "==> Patching ROCm Dockerfile for ROCm ${ROCM_VERSION} (image tag: ${ROCM_IMAGE_TAG})"
+
+    # 1. Replace FROM base image (any rocm/dev-ubuntu-* tag)
     sed -i -E \
         "s|FROM rocm/dev-ubuntu-[^:]+:[^[:space:]]+|FROM rocm/dev-ubuntu-24.04:${ROCM_IMAGE_TAG}|g" \
         "$ROCM_DOCKERFILE"
 
-    # Replace the PyTorch ROCm wheel URL (e.g. rocm6.4 → rocm7.2)
-    # PyTorch publishes wheels at https://download.pytorch.org/whl/rocmX.Y
+    # 2. Replace the ENV ROCM_VERSION line used by kdb_install.sh
+    #    (format in Dockerfile: ENV ROCM_VERSION=X.Y.Z)
     sed -i -E \
-        "s|rocm[0-9]+\\.[0-9]+(\\.[0-9]+)?|rocm${ROCM_SHORT}|g" \
+        "s|ENV ROCM_VERSION=[0-9]+\.[0-9]+(\.[0-9]+)?|ENV ROCM_VERSION=${ROCM_SHORT}|g" \
         "$ROCM_DOCKERFILE"
 
-    echo "==> Dockerfile patched (image tag ${ROCM_IMAGE_TAG}, PyTorch wheel rocm${ROCM_SHORT})"
+    # 3. Replace PyTorch ROCm wheel index URL (e.g. rocm6.4 → rocm7.2)
+    #    Only match the wheel URL pattern (preceded by / or = to avoid matching rocm/ image names)
+    sed -i -E \
+        "s|(download\.pytorch\.org/whl/)rocm[0-9]+\.[0-9]+|\1rocm${ROCM_SHORT}|g" \
+        "$ROCM_DOCKERFILE"
+
+    # 4. Remove the "Support older GFX Arch" ROCBlas override block for ROCm 7.x.
+    #    That step downloads a ROCm 6.x Arch Linux package and breaks on 7.x / gfx1150.
+    #    It exists only to broaden RDNA2 compat; newer GPUs don't need it.
+    if [ "$ROCM_MAJOR" -ge 7 ]; then
+        echo "==> Removing legacy ROCBlas override (not needed for ROCm 7.x / gfx1150)"
+        python3 - "$ROCM_DOCKERFILE" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+text = open(path).read()
+# Remove the ENV ROCBLAS_VERSION + RUN block that downloads the archlinux rocblas package
+text = re.sub(
+    r'#\s*Support older GFX Arch\s*\n'
+    r'ENV ROCBLAS_VERSION=.*?\n'
+    r'RUN cd /tmp.*?rocblas/\n',
+    '# (ROCBlas override removed – not needed for ROCm 7.x / gfx1150)\n',
+    text, flags=re.DOTALL
+)
+open(path, 'w').write(text)
+print("  ROCBlas override block removed.")
+PYEOF
+    fi
+
+    # 5. Inject GFX_ARCH so kdb_install.sh picks the right kernel shape files.
+    #    The Dockerfile has no ARG for this; inject an ENV before the kdb_install step.
+    GFX_ARCH="${GFX_ARCH:-}"
+    if [ -n "$GFX_ARCH" ]; then
+        echo "==> Injecting ENV GFX_ARCH=${GFX_ARCH} into Dockerfile"
+        sed -i \
+            "s|COPY --chown=appuser:appuser docker/rocm/kdb_install.sh /tmp/|ENV GFX_ARCH=${GFX_ARCH}\nCOPY --chown=appuser:appuser docker/rocm/kdb_install.sh /tmp/|" \
+            "$ROCM_DOCKERFILE"
+    else
+        echo "==> Note: GFX_ARCH not set; kdb_install.sh will use its default architecture list."
+        echo "    For gfx1150 (Ryzen AI 9 HX 370): export GFX_ARCH=gfx1150 && bash setup.sh"
+    fi
+
+    echo "==> Dockerfile patched (image tag ${ROCM_IMAGE_TAG}, ROCM_VERSION=${ROCM_SHORT})"
 else
     echo "==> Warning: $ROCM_DOCKERFILE not found – skipping patch"
 fi

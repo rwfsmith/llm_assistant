@@ -72,6 +72,12 @@ export VIDEO_GID=$(getent group video | cut -d: -f3)
 export RENDER_GID=$(getent group render | cut -d: -f3)
 export KOKORO_DATA_DIR=/mnt/tank/apps/kokoro/docker/kokoro-rocm/data
 
+# Set your GPU's GFX target (setup.sh injects this into the Dockerfile):
+#   gfx1150 = Ryzen AI 9 HX 370 / Strix Point (RDNA 3.5)
+#   gfx1100 = RX 7900 XTX / 7800 XT (RDNA 3)
+#   gfx1030 = RX 6800 XT / 6950 XT (RDNA 2)
+export GFX_ARCH=gfx1150
+
 docker compose -f truenas-compose.yml up -d --build
 ```
 
@@ -107,7 +113,8 @@ Then clone the repo and run the included setup script:
 
 ```bash
 cd docker/kokoro-rocm
-bash setup.sh          # clones Kokoro-FastAPI source, detects GIDs, starts stack
+export GFX_ARCH=gfx1150   # set to your GPU's target
+bash setup.sh          # clones Kokoro-FastAPI source, patches Dockerfile, starts stack
 ```
 
 Verify:
