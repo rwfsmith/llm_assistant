@@ -86,7 +86,8 @@ RUN if [ "${GFX_ARCH}" = "gfx1150" ]; then \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
             --extra-index-url https://pypi.org/simple \
             --index-strategy unsafe-best-match \
-            torch torchaudio torchvision; \
+            --upgrade \
+            rocm[libraries,devel] torch torchaudio torchvision; \
     else \
         echo "==> GFX_ARCH=${GFX_ARCH:-unset}: skipping gfx1150 staging step."; \
     fi
