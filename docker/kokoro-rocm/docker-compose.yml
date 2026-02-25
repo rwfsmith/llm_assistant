@@ -51,9 +51,6 @@ services:
       # After first successful startup, consider changing to MIOPEN_FIND_MODE=2.
       - MIOPEN_FIND_MODE=3
       - MIOPEN_FIND_ENFORCE=3
-      # gfx1150 (Ryzen AI 9 HX 370 / Strix Point): tells ROCm/HIP runtime to
-      # treat the GPU as gfx1100 for kernel dispatch compatibility.
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0
 
     volumes:
       # Model weights – avoids re-downloading on container recreate

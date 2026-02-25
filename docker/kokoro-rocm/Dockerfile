@@ -1,26 +1,23 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Kokoro TTS API – ONNX Runtime backend (AMD GPU / CPU)
 #
-# Replaces the old PyTorch/Kokoro-FastAPI stack with a clean kokoro-onnx app.
-# No PyTorch, no staging wheels, no rocm-sdk — just ONNX Runtime.
-#
 # Build args:
 #   ROCM_VERSION   ROCm base image tag  (default: 7.2)  — used when GPU_SUPPORT=rocm
 #   GPU_SUPPORT    rocm | cpu           (default: rocm)
 #
-# GPU_SUPPORT=rocm  → base: rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete
-#                     pip:  onnxruntime-rocm
-#                     env:  ONNX_PROVIDER=ROCMExecutionProvider
-# GPU_SUPPORT=cpu   → base: ubuntu:24.04
-#                     pip:  onnxruntime
-#                     env:  ONNX_PROVIDER=CPUExecutionProvider
+# GPU_SUPPORT=rocm:
+#   base image: rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete
+#   torch:      installed from AMD gfx1150 staging index
+#               (https://rocm.nightlies.amd.com/v2-staging/gfx1150/)
+#               — provides native gfx1150 kernels; no HSA_OVERRIDE needed
+#   onnxruntime: onnxruntime-rocm from PyPI (links against the staged torch)
+#
+# GPU_SUPPORT=cpu:
+#   base image: ubuntu:24.04
+#   onnxruntime: standard onnxruntime from PyPI (no torch needed)
 #
 # Model files are downloaded at container startup by entrypoint.sh and cached
 # in MODEL_DIR (mount a named volume for persistence across restarts).
-#
-# AMD GPU compatibility (gfx1150 / Strix Point):
-#   Set HSA_OVERRIDE_GFX_VERSION=11.0.0 in the compose environment so the
-#   ROCm/HIP runtime recognises the GPU.  No GFX_ARCH build arg is required.
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARG ROCM_VERSION=7.2
@@ -54,11 +51,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# ── ONNX Runtime – GPU (ROCm) or CPU ─────────────────────────────────────────
-# onnxruntime-rocm requires system ROCm libraries (provided by the rocm base
-# image).  onnxruntime is the standard CPU-only package.
+# ── PyTorch (ROCm only) + ONNX Runtime ───────────────────────────────────────
+# For ROCm / gfx1150:
+#   1. Install torch from AMD's gfx1150 staging index — these wheels contain
+#      native gfx1150 kernels, so no HSA_OVERRIDE_GFX_VERSION is required.
+#   2. Install onnxruntime-rocm from PyPI — it links against the torch ROCm
+#      libraries already present on the system/venv from step 1.
+# For CPU:
+#   Install the standard onnxruntime wheel; no torch dependency needed.
+ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
-        echo "==> Installing onnxruntime-rocm for AMD GPU..." && \
+        echo "==> Installing gfx1150 torch from AMD staging index..." && \
+        pip install --no-cache-dir \
+            --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
+            --extra-index-url https://pypi.org/simple \
+            torch && \
+        echo "==> Installing onnxruntime-rocm..." && \
         pip install --no-cache-dir onnxruntime-rocm; \
     else \
         echo "==> Installing onnxruntime (CPU)..." && \
