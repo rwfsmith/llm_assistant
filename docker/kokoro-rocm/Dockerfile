@@ -68,9 +68,9 @@ RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
             "rocm[libraries,devel]" && \
         echo "==> Extracting ROCm libraries via rocm-sdk init..." && \
-        python3 -m rocm_sdk init && \
+        rocm-sdk init && \
         echo "==> Registering ROCm library path with ldconfig..." && \
-        python3 -m rocm_sdk path --root | xargs -I{} sh -c 'echo "{}/lib" > /etc/ld.so.conf.d/rocm.conf' && \
+        rocm-sdk path --root | xargs -I{} sh -c 'echo "{}/lib" > /etc/ld.so.conf.d/rocm.conf' && \
         ldconfig && \
         echo "==> Installing gfx1150 torch from AMD staging (no PyPI fallback)..." && \
         pip install --no-cache-dir \
