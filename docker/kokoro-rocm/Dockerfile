@@ -1,30 +1,34 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Kokoro TTS API – ONNX Runtime backend (AMD GPU / CPU)
 #
-# Both GPU and CPU builds use ubuntu:24.04 as the base image.
-# ROCm libraries are installed via the Python rocm-sdk package from AMD's
-# gfx1150 staging index — no 10 GB rocm/dev-ubuntu base image needed.
-#
 # Build args:
-#   GPU_SUPPORT    rocm | cpu  (default: rocm)
+#   GPU_SUPPORT    rocm | cpu        (default: rocm)
+#   ROCM_IMAGE     ROCm base image   (default: rocm/dev-ubuntu-24.04:6.4-complete)
+#
+# GPU build uses the ROCm base image so that system MIGraphX libraries
+# (libmigraphx_c.so etc.) are available for onnxruntime-migraphx.
+# rocm[libraries,devel] and torch are still installed from the AMD gfx1150
+# staging index on top, to get gfx1150-native library/kernel versions.
 #
 # GPU_SUPPORT=rocm install sequence:
-#   1. pip install rocm[libraries,devel,migraphx]  — downloads ROCm libs + MIGraphX
-#                                           (hipblas, rocblas, migraphx_c, etc.) into venv
-#   2. python3 -m rocm_sdk init           — extracts the tar, sets up lib paths
-#   3. pip install torch                  — gfx1150 native wheels from AMD staging
-#   4. pip install onnxruntime-migraphx  — ONNX MIGraphX EP (force-reinstall over
-#                                           the CPU onnxruntime from kokoro-onnx)
+#   1. pip install rocm[libraries,devel]  — gfx1150-tuned ROCm Python libs
+#   2. pip install torch                  — gfx1150 native wheels from AMD staging
+#   3. pip install onnxruntime-migraphx   — ONNX MIGraphX EP (replaces CPU onnxruntime)
 #
-# GPU_SUPPORT=cpu: onnxruntime (CPU) already pulled in by kokoro-onnx deps.
+# GPU_SUPPORT=cpu: ubuntu:24.04 base, onnxruntime (CPU) from kokoro-onnx deps.
 #
 # Model files are downloaded at container startup by entrypoint.sh and cached
 # in MODEL_DIR (mount a volume for persistence across restarts).
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARG GPU_SUPPORT=rocm
+ARG ROCM_IMAGE=rocm/dev-ubuntu-24.04:6.4-complete
 
-FROM ubuntu:24.04
+# Named base stages — Docker selects via FROM base-${GPU_SUPPORT} below
+FROM ubuntu:24.04 AS base-cpu
+FROM ${ROCM_IMAGE} AS base-rocm
+
+FROM base-${GPU_SUPPORT}
 
 ARG GPU_SUPPORT=rocm
 
@@ -58,20 +62,15 @@ RUN pip install --no-cache-dir \
         "numpy>=1.26"
 
 # ── ROCm libraries + PyTorch + ONNX Runtime (ROCm only) ───────────────────────
-# All from AMD gfx1150 staging index so library versions are guaranteed to match.
-# rocm-sdk init extracts the bundled ROCm library tar into the venv, making
-# hipblas, rocblas etc. available without any system ROCm installation.
+# System MIGraphX libs come from the ROCm base image (libmigraphx_c.so etc.).
+# rocm[libraries,devel] and torch are installed from the gfx1150 staging index
+# on top, so gfx1150-native kernels/libs take precedence at runtime.
 ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
-        echo "==> Installing ROCm libs + MIGraphX from AMD gfx1150 staging..." && \
+        echo "==> Installing gfx1150 ROCm Python libs from AMD staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            "rocm[libraries,devel,migraphx]" && \
-        echo "==> Extracting ROCm libraries via rocm-sdk init..." && \
-        rocm-sdk init && \
-        echo "==> Registering ROCm library path with ldconfig..." && \
-        rocm-sdk path --root | xargs -I{} sh -c 'echo "{}/lib" > /etc/ld.so.conf.d/rocm.conf' && \
-        ldconfig && \
+            "rocm[libraries,devel]" && \
         echo "==> Installing gfx1150 torch from AMD staging (no PyPI fallback)..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
