@@ -1,34 +1,30 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Kokoro TTS API – ONNX Runtime backend (AMD GPU / CPU)
 #
+# Both GPU and CPU builds use ubuntu:24.04 as the base image.
+# ROCm libraries are installed via the Python rocm-sdk package from AMD's
+# gfx1150 staging index — no 10 GB rocm/dev-ubuntu base image needed.
+#
 # Build args:
-#   ROCM_VERSION   ROCm base image tag  (default: 7.2)  — used when GPU_SUPPORT=rocm
-#   GPU_SUPPORT    rocm | cpu           (default: rocm)
+#   GPU_SUPPORT    rocm | cpu  (default: rocm)
 #
-# GPU_SUPPORT=rocm:
-#   base image: rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete
-#   torch:      installed from AMD gfx1150 staging index
-#               (https://rocm.nightlies.amd.com/v2-staging/gfx1150/)
-#               — provides native gfx1150 kernels; no HSA_OVERRIDE needed
-#   onnxruntime: onnxruntime-rocm from PyPI (links against the staged torch)
+# GPU_SUPPORT=rocm install sequence:
+#   1. pip install rocm[libraries,devel]  — downloads and unpacks ROCm libs
+#                                           (hipblas, rocblas, etc.) into venv
+#   2. python3 -m rocm_sdk init           — extracts the tar, sets up lib paths
+#   3. pip install torch                  — gfx1150 native wheels from AMD staging
+#   4. pip install onnxruntime-rocm       — ONNX ROCm EP (force-reinstall over
+#                                           the CPU onnxruntime from kokoro-onnx)
 #
-# GPU_SUPPORT=cpu:
-#   base image: ubuntu:24.04
-#   onnxruntime: standard onnxruntime from PyPI (no torch needed)
+# GPU_SUPPORT=cpu: onnxruntime (CPU) already pulled in by kokoro-onnx deps.
 #
 # Model files are downloaded at container startup by entrypoint.sh and cached
-# in MODEL_DIR (mount a named volume for persistence across restarts).
+# in MODEL_DIR (mount a volume for persistence across restarts).
 # ─────────────────────────────────────────────────────────────────────────────
 
-ARG ROCM_VERSION=7.2
 ARG GPU_SUPPORT=rocm
 
-# ── Base image aliases (one per GPU_SUPPORT value) ────────────────────────────
-FROM rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete AS base-rocm
-FROM ubuntu:24.04 AS base-cpu
-
-# ── Runtime stage – selected by GPU_SUPPORT ───────────────────────────────────
-FROM base-${GPU_SUPPORT} AS runtime
+FROM ubuntu:24.04
 
 ARG GPU_SUPPORT=rocm
 
@@ -45,7 +41,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         curl \
         ca-certificates \
-        hipblas \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ── Python virtual environment ─────────────────────────────────────────────────
@@ -54,7 +49,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # ── Application dependencies ──────────────────────────────────────────────────
 # Install app deps first — kokoro-onnx pulls in plain onnxruntime (CPU) as a
-# transitive dependency. We overwrite it with onnxruntime-rocm in the next step.
+# transitive dep. We overwrite it with onnxruntime-rocm in the ROCm step below.
 RUN pip install --no-cache-dir \
         "fastapi>=0.115" \
         "uvicorn[standard]>=0.30" \
@@ -62,20 +57,19 @@ RUN pip install --no-cache-dir \
         "soundfile>=0.12" \
         "numpy>=1.26"
 
-# ── PyTorch (ROCm only) + ONNX Runtime ───────────────────────────────────────
-# Done AFTER app deps so onnxruntime-rocm overwrites the CPU onnxruntime that
-# kokoro-onnx dragged in above.
-# For ROCm / gfx1150:
-#   1. torch from AMD gfx1150 staging index (native gfx1150 kernels)
-#   2. onnxruntime-rocm --force-reinstall (overwrites the CPU onnxruntime)
-# For CPU: onnxruntime already present from kokoro-onnx deps — nothing to do.
+# ── ROCm libraries + PyTorch + ONNX Runtime (ROCm only) ───────────────────────
+# All from AMD gfx1150 staging index so library versions are guaranteed to match.
+# rocm-sdk init extracts the bundled ROCm library tar into the venv, making
+# hipblas, rocblas etc. available without any system ROCm installation.
 ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
-        echo "==> Installing gfx1150 torch from AMD staging index..." && \
+        echo "==> Installing ROCm libs + torch from AMD gfx1150 staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
             --extra-index-url https://pypi.org/simple \
-            torch && \
+            "rocm[libraries,devel]" torch && \
+        echo "==> Extracting ROCm libraries via rocm-sdk init..." && \
+        python3 -m rocm_sdk init && \
         echo "==> Installing onnxruntime-rocm (overwrites CPU onnxruntime)..." && \
         pip install --no-cache-dir --force-reinstall onnxruntime-rocm; \
     else \

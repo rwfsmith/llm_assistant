@@ -16,7 +16,6 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        ROCM_VERSION: "7.2"
         GPU_SUPPORT: ${GPU_SUPPORT:-rocm}
 
     container_name: kokoro-tts-rocm
