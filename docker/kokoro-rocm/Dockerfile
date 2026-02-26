@@ -51,14 +51,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# ── Application dependencies ──────────────────────────────────────────────────
+# Install app deps first — kokoro-onnx pulls in plain onnxruntime (CPU) as a
+# transitive dependency. We overwrite it with onnxruntime-rocm in the next step.
+RUN pip install --no-cache-dir \
+        "fastapi>=0.115" \
+        "uvicorn[standard]>=0.30" \
+        "kokoro-onnx>=0.5.0" \
+        "soundfile>=0.12" \
+        "numpy>=1.26"
+
 # ── PyTorch (ROCm only) + ONNX Runtime ───────────────────────────────────────
+# Done AFTER app deps so onnxruntime-rocm overwrites the CPU onnxruntime that
+# kokoro-onnx dragged in above.
 # For ROCm / gfx1150:
-#   1. Install torch from AMD's gfx1150 staging index — these wheels contain
-#      native gfx1150 kernels, so no HSA_OVERRIDE_GFX_VERSION is required.
-#   2. Install onnxruntime-rocm from PyPI — it links against the torch ROCm
-#      libraries already present on the system/venv from step 1.
-# For CPU:
-#   Install the standard onnxruntime wheel; no torch dependency needed.
+#   1. torch from AMD gfx1150 staging index (native gfx1150 kernels)
+#   2. onnxruntime-rocm --force-reinstall (overwrites the CPU onnxruntime)
+# For CPU: onnxruntime already present from kokoro-onnx deps — nothing to do.
 ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
         echo "==> Installing gfx1150 torch from AMD staging index..." && \
@@ -66,20 +75,11 @@ RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
             --extra-index-url https://pypi.org/simple \
             torch && \
-        echo "==> Installing onnxruntime-rocm..." && \
-        pip install --no-cache-dir onnxruntime-rocm; \
+        echo "==> Installing onnxruntime-rocm (overwrites CPU onnxruntime)..." && \
+        pip install --no-cache-dir --force-reinstall onnxruntime-rocm; \
     else \
-        echo "==> Installing onnxruntime (CPU)..." && \
-        pip install --no-cache-dir onnxruntime; \
+        echo "==> CPU build: onnxruntime already installed via kokoro-onnx deps."; \
     fi
-
-# ── Application dependencies ──────────────────────────────────────────────────
-RUN pip install --no-cache-dir \
-        "fastapi>=0.115" \
-        "uvicorn[standard]>=0.30" \
-        "kokoro-onnx>=0.5.0" \
-        "soundfile>=0.12" \
-        "numpy>=1.26"
 
 # ── App structure ─────────────────────────────────────────────────────────────
 # Note: /opt/venv is intentionally left root-owned — chown-ing several GB of
