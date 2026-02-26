@@ -29,12 +29,15 @@ from __future__ import annotations
 import io
 import logging
 import os
+import struct
 from typing import Annotated, Literal
 
 import numpy as np
 import soundfile as sf
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from starlette.concurrency import iterate_in_threadpool
 from kokoro_onnx import Kokoro
 from pydantic import BaseModel, Field
 
@@ -60,6 +63,19 @@ _VARIANT_FILES: dict[str, str] = {
     "fp16-gpu": "kokoro-v1.0.fp16-gpu.onnx",
     "int8": "kokoro-v1.0.int8.onnx",
 }
+
+def _streaming_wav_header(sample_rate: int, num_channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    """WAV header with 0xFFFFFFFF data size sentinel for HTTP streaming."""
+    byte_rate = sample_rate * num_channels * bits_per_sample // 8
+    block_align = num_channels * bits_per_sample // 8
+    return struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF", 0xFFFFFFFF, b"WAVE",
+        b"fmt ", 16, 1, num_channels, sample_rate,
+        byte_rate, block_align, bits_per_sample,
+        b"data", 0xFFFFFFFF,
+    )
+
 
 _model_file = _VARIANT_FILES.get(MODEL_VARIANT, f"kokoro-v1.0.{MODEL_VARIANT}.onnx")
 _model_path = os.path.join(MODEL_DIR, _model_file)
@@ -170,7 +186,7 @@ def list_voices() -> dict:
 
 @app.post("/v1/audio/speech")
 def synthesize(req: SpeechRequest) -> Response:
-    """Synthesize speech and return audio bytes."""
+    """Synthesize speech and stream audio bytes."""
     kokoro = _get_kokoro()
 
     _LOGGER.debug(
@@ -182,35 +198,41 @@ def synthesize(req: SpeechRequest) -> Response:
         len(req.input),
     )
 
-    try:
-        audio_np, sample_rate = kokoro.create(
-            req.input, voice=req.voice, speed=req.speed, lang=req.lang
-        )
-    except Exception as exc:
-        _LOGGER.error("Synthesis failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Synthesis failed: {exc}") from exc
-
-    if audio_np is None or len(audio_np) == 0:
-        return Response(status_code=204)
-
-    buf = io.BytesIO()
     fmt = req.response_format
 
-    if fmt == "wav":
-        sf.write(buf, audio_np, sample_rate, format="WAV", subtype="PCM_16")
-        media_type = "audio/wav"
-    elif fmt == "flac":
+    # FLAC requires the full audio upfront — buffer it
+    if fmt == "flac":
+        try:
+            audio_np, sample_rate = kokoro.create(
+                req.input, voice=req.voice, speed=req.speed, lang=req.lang
+            )
+        except Exception as exc:
+            _LOGGER.error("Synthesis failed: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Synthesis failed: {exc}") from exc
+        if audio_np is None or len(audio_np) == 0:
+            return Response(status_code=204)
+        buf = io.BytesIO()
         sf.write(buf, audio_np, sample_rate, format="FLAC")
-        media_type = "audio/flac"
-    elif fmt == "pcm":
-        pcm = (np.clip(audio_np, -1.0, 1.0) * 32767).astype(np.int16)
-        buf.write(pcm.tobytes())
-        media_type = "audio/pcm"
-    else:
-        # mp3 / opus not supported by soundfile; fall back to WAV
-        _LOGGER.debug("format=%s not natively supported; returning WAV", fmt)
-        sf.write(buf, audio_np, sample_rate, format="WAV", subtype="PCM_16")
-        media_type = "audio/wav"
+        buf.seek(0)
+        return Response(content=buf.read(), media_type="audio/flac")
 
-    buf.seek(0)
-    return Response(content=buf.read(), media_type=media_type)
+    # WAV, PCM, and mp3/opus fallback all stream via create_stream()
+    def _pcm_chunks():
+        try:
+            for chunk, _sr in kokoro.create_stream(
+                req.input, voice=req.voice, speed=req.speed, lang=req.lang
+            ):
+                if chunk is not None and len(chunk) > 0:
+                    yield (np.clip(chunk, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+        except Exception as exc:
+            _LOGGER.error("Streaming synthesis failed: %s", exc)
+
+    if fmt == "pcm":
+        return StreamingResponse(iterate_in_threadpool(_pcm_chunks()), media_type="audio/pcm")
+
+    # WAV (default) and mp3/opus fallback — prepend streaming WAV header
+    def _wav_chunks():
+        yield _streaming_wav_header(SAMPLE_RATE)
+        yield from _pcm_chunks()
+
+    return StreamingResponse(iterate_in_threadpool(_wav_chunks()), media_type="audio/wav")

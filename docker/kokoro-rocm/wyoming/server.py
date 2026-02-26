@@ -7,9 +7,7 @@ back as Wyoming audio-chunk events.
 
 import argparse
 import asyncio
-import io
 import logging
-import wave
 from functools import partial
 from typing import Optional
 
@@ -77,12 +75,18 @@ class KokoroWyomingHandler(AsyncEventHandler):
             synthesize.voice.name if synthesize.voice else None
         ) or self.default_voice
 
+        # Raw PCM — no WAV header overhead, enables true streaming
+        _RATE = 24_000
+        _WIDTH = 2   # 16-bit
+        _CHANNELS = 1
+        bytes_per_chunk = SAMPLES_PER_CHUNK * _WIDTH * _CHANNELS
+
         payload = {
             "model": "kokoro",
             "input": synthesize.text,
             "voice": voice_name,
             "speed": self.default_speed,
-            "response_format": "wav",  # WAV so we can parse rate/width/channels
+            "response_format": "pcm",
         }
 
         _LOGGER.debug("Synthesizing: voice=%s text=%r", voice_name, synthesize.text[:60])
@@ -92,45 +96,44 @@ class KokoroWyomingHandler(AsyncEventHandler):
                 async with session.post(
                     f"{self.kokoro_url}/v1/audio/speech",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=60),
+                    timeout=aiohttp.ClientTimeout(
+                        total=None, connect=10, sock_connect=10, sock_read=300
+                    ),
                 ) as resp:
                     resp.raise_for_status()
-                    audio_bytes = await resp.read()
+
+                    await self.write_event(
+                        AudioStart(rate=_RATE, width=_WIDTH, channels=_CHANNELS).event()
+                    )
+
+                    leftover = b""
+                    async for http_chunk in resp.content.iter_chunked(bytes_per_chunk * 4):
+                        data = leftover + http_chunk
+                        while len(data) >= bytes_per_chunk:
+                            await self.write_event(
+                                AudioChunk(
+                                    audio=data[:bytes_per_chunk],
+                                    rate=_RATE,
+                                    width=_WIDTH,
+                                    channels=_CHANNELS,
+                                ).event()
+                            )
+                            data = data[bytes_per_chunk:]
+                        leftover = data
+
+                    if leftover:
+                        await self.write_event(
+                            AudioChunk(
+                                audio=leftover,
+                                rate=_RATE,
+                                width=_WIDTH,
+                                channels=_CHANNELS,
+                            ).event()
+                        )
+
         except Exception as exc:
             _LOGGER.error("Kokoro-FastAPI request failed: %s", exc)
             return True
-
-        # Parse WAV header to get audio parameters
-        wav_io = io.BytesIO(audio_bytes)
-        with wave.open(wav_io, "rb") as wav_file:
-            rate = wav_file.getframerate()
-            width = wav_file.getsampwidth()
-            channels = wav_file.getnchannels()
-            pcm_data = wav_file.readframes(wav_file.getnframes())
-
-        _LOGGER.debug(
-            "Audio: rate=%d width=%d channels=%d pcm_bytes=%d",
-            rate, width, channels, len(pcm_data),
-        )
-
-        # Stream PCM as Wyoming audio events
-        await self.write_event(
-            AudioStart(rate=rate, width=width, channels=channels).event()
-        )
-
-        bytes_per_chunk = SAMPLES_PER_CHUNK * width * channels
-        offset = 0
-        while offset < len(pcm_data):
-            chunk = pcm_data[offset : offset + bytes_per_chunk]
-            await self.write_event(
-                AudioChunk(
-                    audio=chunk,
-                    rate=rate,
-                    width=width,
-                    channels=channels,
-                ).event()
-            )
-            offset += bytes_per_chunk
 
         await self.write_event(AudioStop().event())
         return True
