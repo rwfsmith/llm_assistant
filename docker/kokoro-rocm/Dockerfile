@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         curl \
         ca-certificates \
+        hipblas \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ── Python virtual environment ─────────────────────────────────────────────────
