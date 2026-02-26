@@ -67,6 +67,9 @@ RUN pip install --no-cache-dir \
 # on top, so gfx1150-native kernels/libs take precedence at runtime.
 ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
+        echo "==> Installing system MIGraphX libraries via apt..." && \
+        apt-get update && apt-get install -y --no-install-recommends migraphx && \
+        apt-get clean && rm -rf /var/lib/apt/lists/* && \
         echo "==> Installing gfx1150 ROCm Python libs from AMD staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
