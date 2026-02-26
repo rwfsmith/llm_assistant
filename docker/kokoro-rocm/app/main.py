@@ -37,7 +37,6 @@ import soundfile as sf
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from starlette.concurrency import iterate_in_threadpool
 from kokoro_onnx import Kokoro
 from pydantic import BaseModel, Field
 
@@ -185,7 +184,7 @@ def list_voices() -> dict:
 
 
 @app.post("/v1/audio/speech")
-def synthesize(req: SpeechRequest) -> Response:
+async def synthesize(req: SpeechRequest) -> Response:
     """Synthesize speech and stream audio bytes."""
     kokoro = _get_kokoro()
 
@@ -217,9 +216,9 @@ def synthesize(req: SpeechRequest) -> Response:
         return Response(content=buf.read(), media_type="audio/flac")
 
     # WAV, PCM, and mp3/opus fallback all stream via create_stream()
-    def _pcm_chunks():
+    async def _pcm_chunks():
         try:
-            for chunk, _sr in kokoro.create_stream(
+            async for chunk, _sr in kokoro.create_stream(
                 req.input, voice=req.voice, speed=req.speed, lang=req.lang
             ):
                 if chunk is not None and len(chunk) > 0:
@@ -228,11 +227,12 @@ def synthesize(req: SpeechRequest) -> Response:
             _LOGGER.error("Streaming synthesis failed: %s", exc)
 
     if fmt == "pcm":
-        return StreamingResponse(iterate_in_threadpool(_pcm_chunks()), media_type="audio/pcm")
+        return StreamingResponse(_pcm_chunks(), media_type="audio/pcm")
 
     # WAV (default) and mp3/opus fallback — prepend streaming WAV header
-    def _wav_chunks():
+    async def _wav_chunks():
         yield _streaming_wav_header(SAMPLE_RATE)
-        yield from _pcm_chunks()
+        async for chunk in _pcm_chunks():
+            yield chunk
 
-    return StreamingResponse(iterate_in_threadpool(_wav_chunks()), media_type="audio/wav")
+    return StreamingResponse(_wav_chunks(), media_type="audio/wav")
