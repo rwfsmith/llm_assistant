@@ -13,7 +13,7 @@
 #                                           (hipblas, rocblas, etc.) into venv
 #   2. python3 -m rocm_sdk init           — extracts the tar, sets up lib paths
 #   3. pip install torch                  — gfx1150 native wheels from AMD staging
-#   4. pip install onnxruntime-rocm       — ONNX ROCm EP (force-reinstall over
+#   4. pip install onnxruntime-migraphx  — ONNX MIGraphX EP (force-reinstall over
 #                                           the CPU onnxruntime from kokoro-onnx)
 #
 # GPU_SUPPORT=cpu: onnxruntime (CPU) already pulled in by kokoro-onnx deps.
@@ -73,8 +73,8 @@ RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
         echo "==> Registering ROCm library path with ldconfig..." && \
         python3 -m rocm_sdk path --root | xargs -I{} sh -c 'echo "{}/lib" > /etc/ld.so.conf.d/rocm.conf' && \
         ldconfig && \
-        echo "==> Installing onnxruntime-rocm (overwrites CPU onnxruntime)..." && \
-        pip install --no-cache-dir --force-reinstall onnxruntime-rocm; \
+        echo "==> Installing onnxruntime-migraphx (overwrites CPU onnxruntime)..." && \
+        pip install --no-cache-dir --force-reinstall onnxruntime-migraphx; \
     else \
         echo "==> CPU build: onnxruntime already installed via kokoro-onnx deps."; \
     fi
