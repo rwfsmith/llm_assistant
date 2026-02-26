@@ -162,6 +162,7 @@ async def fetch_voices(kokoro_url: str, default_voice: str) -> list[TtsVoice]:
         voices.append(
             TtsVoice(
                 name=name,
+                description=name,
                 languages=[lang],
                 attribution=Attribution(
                     name="Kokoro",
