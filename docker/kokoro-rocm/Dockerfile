@@ -63,16 +63,19 @@ RUN pip install --no-cache-dir \
 # hipblas, rocblas etc. available without any system ROCm installation.
 ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
-        echo "==> Installing ROCm libs + torch from AMD gfx1150 staging..." && \
+        echo "==> Installing ROCm libs from AMD gfx1150 staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            --extra-index-url https://pypi.org/simple \
-            "rocm[libraries,devel]" torch && \
+            "rocm[libraries,devel]" && \
         echo "==> Extracting ROCm libraries via rocm-sdk init..." && \
-        rocm-sdk init && \
+        python3 -m rocm_sdk init && \
         echo "==> Registering ROCm library path with ldconfig..." && \
-        rocm-sdk path --root | xargs -I{} sh -c 'echo "{}/lib" > /etc/ld.so.conf.d/rocm.conf' && \
+        python3 -m rocm_sdk path --root | xargs -I{} sh -c 'echo "{}/lib" > /etc/ld.so.conf.d/rocm.conf' && \
         ldconfig && \
+        echo "==> Installing gfx1150 torch from AMD staging (no PyPI fallback)..." && \
+        pip install --no-cache-dir \
+            --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
+            torch && \
         echo "==> Installing onnxruntime-migraphx (overwrites CPU onnxruntime)..." && \
         pip install --no-cache-dir --force-reinstall onnxruntime-migraphx; \
     else \
