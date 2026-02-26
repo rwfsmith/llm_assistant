@@ -9,8 +9,8 @@
 #   GPU_SUPPORT    rocm | cpu  (default: rocm)
 #
 # GPU_SUPPORT=rocm install sequence:
-#   1. pip install rocm[libraries,devel]  — downloads and unpacks ROCm libs
-#                                           (hipblas, rocblas, etc.) into venv
+#   1. pip install rocm[libraries,devel,migraphx]  — downloads ROCm libs + MIGraphX
+#                                           (hipblas, rocblas, migraphx_c, etc.) into venv
 #   2. python3 -m rocm_sdk init           — extracts the tar, sets up lib paths
 #   3. pip install torch                  — gfx1150 native wheels from AMD staging
 #   4. pip install onnxruntime-migraphx  — ONNX MIGraphX EP (force-reinstall over
@@ -63,10 +63,10 @@ RUN pip install --no-cache-dir \
 # hipblas, rocblas etc. available without any system ROCm installation.
 ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
-        echo "==> Installing ROCm libs from AMD gfx1150 staging..." && \
+        echo "==> Installing ROCm libs + MIGraphX from AMD gfx1150 staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            "rocm[libraries,devel]" && \
+            "rocm[libraries,devel,migraphx]" && \
         echo "==> Extracting ROCm libraries via rocm-sdk init..." && \
         rocm-sdk init && \
         echo "==> Registering ROCm library path with ldconfig..." && \
