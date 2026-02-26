@@ -76,8 +76,9 @@ RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
             torch && \
-        echo "==> Installing onnxruntime-migraphx (overwrites CPU onnxruntime)..." && \
-        pip install --no-cache-dir --force-reinstall onnxruntime-migraphx; \
+        echo "==> Installing onnxruntime-migraphx (replacing CPU onnxruntime)..." && \
+        pip uninstall -y onnxruntime onnxruntime-rocm && \
+        pip install --no-cache-dir onnxruntime-migraphx; \
     else \
         echo "==> CPU build: onnxruntime already installed via kokoro-onnx deps."; \
     fi
