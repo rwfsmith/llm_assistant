@@ -70,6 +70,9 @@ RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
             "rocm[libraries,devel]" torch && \
         echo "==> Extracting ROCm libraries via rocm-sdk init..." && \
         python3 -m rocm_sdk init && \
+        echo "==> Registering ROCm library path with ldconfig..." && \
+        python3 -m rocm_sdk path --root | xargs -I{} sh -c 'echo "{}/lib" > /etc/ld.so.conf.d/rocm.conf' && \
+        ldconfig && \
         echo "==> Installing onnxruntime-rocm (overwrites CPU onnxruntime)..." && \
         pip install --no-cache-dir --force-reinstall onnxruntime-rocm; \
     else \
