@@ -22,7 +22,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARG GPU_SUPPORT=rocm
-ARG ROCM_IMAGE=rocm/dev-ubuntu-24.04:6.4-complete
+ARG ROCM_IMAGE=rocm/dev-ubuntu-24.04:7.2-complete
 
 # Named base stages — Docker selects via FROM base-${GPU_SUPPORT} below
 FROM ubuntu:24.04 AS base-cpu
