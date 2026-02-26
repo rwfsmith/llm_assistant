@@ -82,9 +82,12 @@ RUN pip install --no-cache-dir \
         "numpy>=1.26"
 
 # ── App structure ─────────────────────────────────────────────────────────────
+# Note: /opt/venv is intentionally left root-owned — chown-ing several GB of
+# torch/onnxruntime wheels takes minutes for no benefit.  Only /app (small)
+# needs to be writable by appuser so it can write downloaded models.
 RUN useradd -m -u 1001 appuser \
     && mkdir -p /app/models \
-    && chown -R appuser:appuser /app /opt/venv
+    && chown -R appuser:appuser /app
 
 WORKDIR /app
 
