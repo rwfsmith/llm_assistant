@@ -77,10 +77,10 @@ RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
         echo "==> Installing torch from AMD gfx1150 staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            torch torchaudio; \
+            torch; \
     else \
-        echo "==> CPU build: installing torch/torchaudio from pytorch.org..." && \
-        pip install --no-cache-dir torch torchaudio \
+        echo "==> CPU build: installing torch from pytorch.org..." && \
+        pip install --no-cache-dir torch \
             --index-url https://download.pytorch.org/whl/cpu; \
     fi
 
@@ -133,11 +133,15 @@ RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
     fi
 
 # ── qwen-asr and runtime deps ─────────────────────────────────────────────────
+# torchaudio is installed from PyPI (not the AMD staging index, which doesn't
+# carry it). Only compliance.kaldi is used (CPU signal processing), so the
+# standard PyPI wheel works correctly alongside ROCm torch.
 RUN pip install --no-cache-dir \
         "qwen-asr>=0.0.6" \
         "huggingface_hub[cli]>=0.27" \
         "fastapi>=0.115" \
-        "uvicorn[standard]>=0.30"
+        "uvicorn[standard]>=0.30" \
+        torchaudio
 
 # ── Bake ROCm pip-package paths so torch can find HIP libs at runtime ─────────
 # rocm-sdk init sets up the SDK; we capture ROCM_PATH and write it to
