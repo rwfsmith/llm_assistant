@@ -5,21 +5,21 @@
 #   GPU_SUPPORT    rocm | cpu        (default: rocm)
 #   ROCM_IMAGE     ROCm base image   (default: rocm/dev-ubuntu-24.04:7.2-complete)
 #
-# GPU build uses the ROCm base image (system MIGraphX, HIP libs) and installs
-# vLLM for ROCm from the AMD gfx1150 staging index on top, along with
-# gfx1150-native torch.
-#
 # GPU_SUPPORT=rocm install sequence:
-#   1. apt install migraphx          — system MIGraphX libs (libmigraphx_c.so etc.)
-#   2. pip install rocm[libraries,devel]  — gfx1150-tuned ROCm Python libs
-#   3. pip install torch             — gfx1150 native wheels from AMD staging
-#   4. pip install vllm              — ROCm vLLM from AMD staging
-#   5. pip install qwen-asr          — installs without pulling CUDA vllm
+#   1. apt install migraphx          — system MIGraphX / HIP libs
+#   2. pip install rocm[libraries,devel]  — from AMD gfx1150 staging only
+#   3. pip install torch             — from AMD gfx1150 staging only
+#   4. pip install triton            — AMD ROCm-compatible triton (PyPI)
+#   5. pip install flash-attn        — built with triton AMD backend, no CUDA kernels
+#   6. pip install vllm qwen-asr …   — everything else from PyPI
 #
-# GPU_SUPPORT=cpu: uses cpu onnxruntime/transformers backend via qwen-asr.
+# flash-attn is built with FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE so it uses
+# triton kernels instead of CUDA device code, and is passed through to vLLM /
+# qwen-asr via VLLM_USE_TRITON_FLASH_ATTN at runtime.
 #
-# The model (Qwen/Qwen3-ASR-0.6B) is downloaded by entrypoint.sh on first
-# start and cached in MODEL_DIR. Mount a volume for persistence.
+# GPU_SUPPORT=cpu: CPU torch from pytorch.org, transformers backend.
+#
+# Model (Qwen/Qwen3-ASR-0.6B) is downloaded by entrypoint.sh on first start.
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARG GPU_SUPPORT=rocm
@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         ca-certificates \
         git \
+        build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ── Python virtual environment ─────────────────────────────────────────────────
@@ -59,28 +60,47 @@ ARG GPU_SUPPORT
 RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
         echo "==> Installing system MIGraphX libraries via apt..." && \
         apt-get update && apt-get install -y --no-install-recommends migraphx && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        echo "==> Installing gfx1150 ROCm Python libs from AMD staging..." && \
+        apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# ── PyTorch: staging index for ROCm, pytorch.org for CPU ──────────────────────
+# Separate install so --index-url applies only to these packages.
+ARG GPU_SUPPORT
+RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
+        echo "==> Installing rocm[libraries,devel] from AMD gfx1150 staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
             "rocm[libraries,devel]" && \
-        echo "==> Installing gfx1150 torch from AMD staging (no PyPI fallback)..." && \
+        echo "==> Installing torch from AMD gfx1150 staging..." && \
         pip install --no-cache-dir \
             --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            torch && \
-        echo "==> Installing ROCm vLLM from AMD staging..." && \
-        pip install --no-cache-dir \
-            --index-url https://rocm.nightlies.amd.com/v2-staging/gfx1150/ \
-            vllm; \
+            torch; \
     else \
-        echo "==> CPU build: installing torch (CPU)..." && \
-        pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu; \
+        echo "==> CPU build: installing torch from pytorch.org..." && \
+        pip install --no-cache-dir torch \
+            --index-url https://download.pytorch.org/whl/cpu; \
     fi
 
-# ── qwen-asr (installed after vllm to avoid pulling CUDA vllm as a dep) ───────
-# Install qwen-asr without the [vllm] extra — vllm is already installed above.
-# The vllm backend is selected at runtime via BACKEND env var.
+# ── Triton + Flash Attention 2 (ROCm build only) ──────────────────────────────
+# triton is AMD ROCm-compatible and required for flash-attn's triton backend.
+# FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE builds flash-attn with triton kernels
+# instead of CUDA device code — the only option that works on ROCm.
+ARG GPU_SUPPORT
+RUN if [ "${GPU_SUPPORT}" = "rocm" ]; then \
+        echo "==> Installing triton..." && \
+        pip install --no-cache-dir triton && \
+        echo "==> Building flash-attn with AMD triton backend..." && \
+        FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE \
+            pip install --no-cache-dir flash-attn --no-build-isolation; \
+    fi
+
+# ── vLLM + qwen-asr: everything from PyPI ─────────────────────────────────────
+# vllm is installed from PyPI here. The ROCm torch already on PATH ensures the
+# PyPI vllm picks up the correct GPU libs at runtime rather than re-downloading
+# CUDA torch. qwen-asr is installed without [vllm] extra since vllm is already
+# present, avoiding any CUDA vllm being pulled as a dep.
 RUN pip install --no-cache-dir \
+        vllm \
         "qwen-asr>=0.0.6" \
         "huggingface_hub[cli]>=0.27" \
         "fastapi>=0.115" \
@@ -104,7 +124,10 @@ ENV MODEL_DIR=/app/models \
     GPU_MEMORY_UTILIZATION=0.7 \
     MAX_NEW_TOKENS=1024 \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=8000 \
+    # Enable flash-attn AMD triton backend at runtime
+    FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE \
+    VLLM_USE_TRITON_FLASH_ATTN=1
 
 EXPOSE 8000
 
