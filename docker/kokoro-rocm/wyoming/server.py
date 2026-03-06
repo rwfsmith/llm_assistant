@@ -11,17 +11,26 @@ import logging
 from functools import partial
 from typing import Optional
 
+import re
+
 import aiohttp
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.event import Event
 from wyoming.info import Attribution, Info, TtsProgram, TtsVoice
 from wyoming.server import AsyncEventHandler, AsyncServer
-from wyoming.tts import Synthesize
+from wyoming.tts import Synthesize, SynthesizeChunk, SynthesizeStart, SynthesizeStop
 
 _LOGGER = logging.getLogger(__name__)
 
 # Number of PCM samples per audio-chunk event
 SAMPLES_PER_CHUNK = 1024
+
+# Sentence boundary: punctuation followed by whitespace or end-of-string.
+# Lookbehind keeps the punctuation attached to the left fragment.
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?])(?=\s|$)")
+# Minimum buffer length before a boundary is treated as a real sentence end
+# (avoids splitting on "Dr.", "Mr.", etc.)
+_MIN_SENTENCE_CHARS = 20
 
 # Map Kokoro voice prefix → BCP-47 language tag
 _LANG_MAP: dict[str, str] = {
@@ -58,6 +67,11 @@ class KokoroWyomingHandler(AsyncEventHandler):
         self.kokoro_url = kokoro_url.rstrip("/")
         self.default_voice = default_voice
         self.default_speed = default_speed
+        # Streaming synthesis state (reset on each SynthesizeStart)
+        self._stream_voice: str = default_voice
+        self._stream_buffer: str = ""
+        self._stream_audio_started: bool = False
+        self._stream_active: bool = False
 
     async def handle_event(self, event: Event) -> bool:
         from wyoming.info import Describe
@@ -66,8 +80,39 @@ class KokoroWyomingHandler(AsyncEventHandler):
             await self.write_event(self.wyoming_info.event())
             return True
 
+        # --- Streaming path -------------------------------------------
+        if SynthesizeStart.is_type(event.type):
+            synth_start = SynthesizeStart.from_event(event)
+            self._stream_voice = (
+                (synth_start.voice.name if synth_start.voice else None)
+                or self.default_voice
+            )
+            self._stream_buffer = ""
+            self._stream_audio_started = False
+            self._stream_active = True
+            return True
+
+        if SynthesizeChunk.is_type(event.type) and self._stream_active:
+            chunk = SynthesizeChunk.from_event(event)
+            self._stream_buffer += chunk.text
+            await self._flush_sentences(force=False)
+            return True
+
+        if SynthesizeStop.is_type(event.type) and self._stream_active:
+            # Flush any remaining buffered text
+            await self._flush_sentences(force=True)
+            if self._stream_audio_started:
+                await self.write_event(AudioStop().event())
+            self._stream_active = False
+            return True
+
+        # --- Non-streaming path (backwards compat) --------------------
+        # If we already handled the message via SynthesizeChunk events,
+        # skip the redundant full Synthesize event that HA also sends.
+        if Synthesize.is_type(event.type) and self._stream_active:
+            return True
+
         if not Synthesize.is_type(event.type):
-            # Ignore other event types (e.g. synthesize-start for streaming)
             return True
 
         synthesize = Synthesize.from_event(event)
@@ -137,6 +182,97 @@ class KokoroWyomingHandler(AsyncEventHandler):
 
         await self.write_event(AudioStop().event())
         return True
+
+    async def _flush_sentences(self, *, force: bool) -> None:
+        """Emit complete sentences from _stream_buffer to Kokoro and stream audio back.
+
+        When force=True, also emit any remaining text that hasn't hit a
+        sentence boundary (i.e. the final fragment at end-of-stream).
+        """
+        while True:
+            match = _SENTENCE_END_RE.search(self._stream_buffer)
+            if match is None:
+                break
+            boundary = match.start()
+            if boundary < _MIN_SENTENCE_CHARS:
+                # Likely an abbreviation — skip past it and keep looking
+                next_match = _SENTENCE_END_RE.search(self._stream_buffer, match.end())
+                if next_match is None:
+                    break
+                boundary = next_match.start()
+                if boundary < _MIN_SENTENCE_CHARS:
+                    break
+                match = next_match
+
+            sentence = self._stream_buffer[:boundary].strip()
+            self._stream_buffer = self._stream_buffer[match.end():].lstrip()
+            if sentence:
+                await self._synthesize_text(sentence)
+
+        if force and self._stream_buffer.strip():
+            await self._synthesize_text(self._stream_buffer.strip())
+            self._stream_buffer = ""
+
+    async def _synthesize_text(self, text: str) -> None:
+        """POST text to Kokoro and write the resulting PCM as AudioChunk events."""
+        _RATE = 24_000
+        _WIDTH = 2
+        _CHANNELS = 1
+        bytes_per_chunk = SAMPLES_PER_CHUNK * _WIDTH * _CHANNELS
+
+        payload = {
+            "model": "kokoro",
+            "input": text,
+            "voice": self._stream_voice,
+            "speed": self.default_speed,
+            "response_format": "pcm",
+        }
+
+        _LOGGER.debug("Stream TTS sentence: voice=%s text=%r", self._stream_voice, text[:60])
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.kokoro_url}/v1/audio/speech",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(
+                        total=None, connect=10, sock_connect=10, sock_read=60
+                    ),
+                ) as resp:
+                    resp.raise_for_status()
+
+                    if not self._stream_audio_started:
+                        await self.write_event(
+                            AudioStart(rate=_RATE, width=_WIDTH, channels=_CHANNELS).event()
+                        )
+                        self._stream_audio_started = True
+
+                    leftover = b""
+                    async for http_chunk in resp.content.iter_chunked(bytes_per_chunk * 4):
+                        data = leftover + http_chunk
+                        while len(data) >= bytes_per_chunk:
+                            await self.write_event(
+                                AudioChunk(
+                                    audio=data[:bytes_per_chunk],
+                                    rate=_RATE,
+                                    width=_WIDTH,
+                                    channels=_CHANNELS,
+                                ).event()
+                            )
+                            data = data[bytes_per_chunk:]
+                        leftover = data
+
+                    if leftover:
+                        await self.write_event(
+                            AudioChunk(
+                                audio=leftover,
+                                rate=_RATE,
+                                width=_WIDTH,
+                                channels=_CHANNELS,
+                            ).event()
+                        )
+        except Exception as exc:
+            _LOGGER.error("Kokoro stream synthesis failed for %r: %s", text[:40], exc)
 
 
 async def fetch_voices(kokoro_url: str, default_voice: str) -> list[TtsVoice]:
@@ -244,6 +380,7 @@ async def main() -> None:
                 installed=True,
                 voices=voices,
                 version="1.0.0",
+                supports_synthesize_streaming=True,
             )
         ]
     )
