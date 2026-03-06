@@ -82,9 +82,7 @@ services:
       start_period: 60s
 
   kokoro-wyoming:
-    build:
-      context: ./wyoming
-      dockerfile: Dockerfile
+    image: ghcr.io/rwfsmith/kokoro-wyoming:latest
 
     container_name: kokoro-wyoming
     restart: unless-stopped

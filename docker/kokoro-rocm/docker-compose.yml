@@ -76,8 +76,10 @@ services:
   # port 10200 (TCP), in addition to the OpenAI-compatible HTTP API.
   # ---------------------------------------------------------------------------
   kokoro-wyoming:
-    build:
-      context: ./wyoming
+    image: ghcr.io/rwfsmith/kokoro-wyoming:latest
+    # To build locally instead: comment out image: above and uncomment:
+    # build:
+    #   context: ./wyoming
       dockerfile: Dockerfile
 
     container_name: kokoro-wyoming
